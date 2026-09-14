@@ -29,17 +29,35 @@ interface ActorTypeCardProps {
   type: ActorType;
   selected: boolean;
   onSelect: (type: ActorType) => void;
+  onArrowNav?: (direction: -1 | 1) => void;
+  /** When true, this card is the roving-tabindex stop in its group — i.e.
+   *  it is the only "tabbable" card, the rest are reachable by Arrow keys
+   *  rather than Tab. Matches the WAI-ARIA radio-group keyboard pattern. */
+  tabStop?: boolean;
+  innerRef?: (el: HTMLButtonElement | null) => void;
 }
 
-export function ActorTypeCard({ type, selected, onSelect }: ActorTypeCardProps) {
+export function ActorTypeCard({ type, selected, onSelect, onArrowNav, tabStop, innerRef }: ActorTypeCardProps) {
   const { title, description, icon: Icon } = ACTOR_TYPE_META[type];
+
+  function handleKeyDown(event: React.KeyboardEvent<HTMLButtonElement>) {
+    // Only handle horizontal navigation here — the parent radiogroup owns
+    // vertical (Up/Down) and selection-on-arrow decisions.
+    if (onArrowNav && (event.key === "ArrowLeft" || event.key === "ArrowRight" || event.key === "ArrowUp" || event.key === "ArrowDown")) {
+      event.preventDefault();
+      onArrowNav(event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1);
+    }
+  }
 
   return (
     <button
+      ref={innerRef}
       type="button"
       role="radio"
       aria-checked={selected}
+      tabIndex={tabStop ? 0 : -1}
       onClick={() => onSelect(type)}
+      onKeyDown={handleKeyDown}
       className="relative flex flex-col items-start gap-2.5 rounded-2xl border-2 p-4 text-left transition-colors outline-none focus-visible:ring-4 focus-visible:ring-[var(--auth-accent)]/25"
       style={{
         borderColor: selected ? "var(--auth-accent)" : "var(--auth-border)",

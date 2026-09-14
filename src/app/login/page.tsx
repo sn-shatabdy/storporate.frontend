@@ -58,6 +58,7 @@ export default function LoginPage() {
   const [finalizeError, setFinalizeError] = useState<string | null>(null);
 
   const handledGoogleGap = useRef(false);
+  const actorCardRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   // A brand-new Google account: the jwt callback already validated the ID
   // token and is waiting on an account-type choice (see options.ts).
@@ -320,8 +321,27 @@ export default function LoginPage() {
           </h1>
 
           <div className="mt-7 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Account type">
-            {ACTOR_TYPES.map((type) => (
-              <ActorTypeCard key={type} type={type} selected={selectedActorType === type} onSelect={setSelectedActorType} />
+            {ACTOR_TYPES.map((type, index) => (
+              <ActorTypeCard
+                key={type}
+                type={type}
+                selected={selectedActorType === type}
+                onSelect={setSelectedActorType}
+                tabStop={selectedActorType === type || (selectedActorType === null && index === 0)}
+                innerRef={(el) => {
+                  actorCardRefs.current[index] = el;
+                }}
+                onArrowNav={(direction) => {
+                  // Wrap-around navigation: from the last card, ArrowRight
+                  // returns to the first; from the first, ArrowLeft goes to
+                  // the last. The WAI-ARIA radio-group keyboard pattern
+                  // recommends this for short lists.
+                  const next = (index + direction + ACTOR_TYPES.length) % ACTOR_TYPES.length;
+                  const nextType = ACTOR_TYPES[next];
+                  setSelectedActorType(nextType);
+                  actorCardRefs.current[next]?.focus();
+                }}
+              />
             ))}
           </div>
 

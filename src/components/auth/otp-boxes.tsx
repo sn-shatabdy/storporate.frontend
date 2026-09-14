@@ -41,6 +41,20 @@ export function OtpBoxes({ value, onChange, hasError, disabled, autoFocus, label
     if (autoFocus) inputRefs.current[0]?.focus();
   }, [autoFocus]);
 
+  // When a box receives focus (via click, Tab, or auto-advance), select its
+  // content so the next keystroke replaces rather than appends. Without
+  // this, clicking or tabbing into a box that already holds a digit would
+  // append the new character to the existing one — e.g. clicking on "3"
+  // and typing "9" would produce "39" in that slot, the very bug the
+  // multi-character distribute branch in handleChange was accidentally
+  // papering over. Selection keeps the user's intent (replace) intact.
+  function handleFocus(index: number) {
+    const el = inputRefs.current[index];
+    if (el && digits[index] !== EMPTY_SLOT) {
+      el.select();
+    }
+  }
+
   function commit(next: string[]) {
     onChange(next.join(""));
   }
@@ -55,7 +69,10 @@ export function OtpBoxes({ value, onChange, hasError, disabled, autoFocus, label
     }
     if (onlyDigits.length > 1) {
       // A full (or partial) code landed in one box — e.g. autofill or a
-      // paste that didn't trigger onPaste. Distribute it from this index.
+      // paste that didn't trigger onPaste. Distribute it from this index,
+      // overwriting whatever was previously in those slots (the assumption
+      // is that the user just pasted a fresh code, not typed into the
+      // middle of one).
       const next = digits.slice();
       for (let i = 0; i < onlyDigits.length && index + i < LENGTH; i++) {
         next[index + i] = onlyDigits[i];
@@ -135,6 +152,7 @@ export function OtpBoxes({ value, onChange, hasError, disabled, autoFocus, label
             value={isFilled ? digit : ""}
             disabled={disabled}
             onChange={(event) => handleChange(index, event.target.value)}
+            onFocus={() => handleFocus(index)}
             onKeyDown={(event) => handleKeyDown(index, event)}
             onPaste={(event) => handlePaste(index, event)}
             className={
