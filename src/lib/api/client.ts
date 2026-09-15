@@ -40,15 +40,31 @@ export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
  * missing/misconfigured env var fails clearly rather than as a confusing
  * network error, and normalizes non-2xx responses into a typed {@link ApiError}
  * matching the backend's `{errorCode, message}` global exception handler shape.
+ *
+ * `body` (if provided) is JSON-serialized and sent with a `Content-Type:
+ * application/json` header — added in STOR-61 Phase 4 for the auth endpoints
+ * (`POST /api/auth/...`), which the original diagnostics-only GET usage never
+ * needed. `bearerToken` (if provided) is sent as `Authorization: Bearer
+ * <token>` for the `[Authorize]`-gated endpoints (`/me`, `/sessions`,
+ * `/logout`, `/logout-all`).
  */
 export async function apiCall<T = unknown>(
   method: HttpMethod,
   path: string,
-  init?: { signal?: AbortSignal },
+  init?: { signal?: AbortSignal; body?: unknown; bearerToken?: string },
 ): Promise<T> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (init?.body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+  if (init?.bearerToken) {
+    headers.Authorization = `Bearer ${init.bearerToken}`;
+  }
+
   const response = await fetch(buildUrl(path), {
     method,
-    headers: { Accept: "application/json" },
+    headers,
+    body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
     signal: init?.signal,
   });
 

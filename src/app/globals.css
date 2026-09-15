@@ -10,6 +10,11 @@
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
+  /* STOR-61 Phase 4: Space Grotesk (headings/buttons) + Manrope (body) for the
+     auth/account screens only — scoped names so the rest of the app (Geist)
+     is untouched. */
+  --font-heading-auth: var(--font-space-grotesk);
+  --font-body-auth: var(--font-manrope);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -127,4 +132,45 @@
   html {
     @apply font-sans;
   }
+}
+
+/*
+ * STOR-61 Phase 4 — auth/account palettes ("Bolivian Beauty" / "Siesta Hour"),
+ * approved via a signed-off design canvas. Kept as CSS custom properties
+ * (rather than folded into the app-wide shadcn tokens above) so a future
+ * story can add a real runtime theme switcher without a rewrite — this story
+ * only ever activates `.theme-bolivian`; `.theme-siesta` is fully defined
+ * and ready, but not user-switchable yet (see the plan's Out of Scope).
+ * Scoped to the auth/account subtree via these classes, not applied
+ * app-wide, so the rest of the app (e.g. the diagnostics home page) is
+ * untouched.
+ */
+.theme-bolivian {
+  --auth-page-bg: #fbf8ec;
+  --auth-card-bg: #ffffff;
+  --auth-soft-1: #e7f0ed;
+  --auth-soft-2: #eeeaf3;
+  --auth-accent: #4d7ea0;
+  --auth-accent-text: #ffffff;
+  --auth-text-primary: #2a1830;
+  --auth-text-muted: #6e6488;
+  --auth-border: #e7dfc0;
+  --auth-tint-1: #e7f0ed;
+  --auth-tint-2: #eeeaf3;
+  --auth-tint-3: #f3efdd;
+}
+
+.theme-siesta {
+  --auth-page-bg: #fdf6ea;
+  --auth-card-bg: #ffffff;
+  --auth-soft-1: #fbeee7;
+  --auth-soft-2: #f4e1dc;
+  --auth-accent: #c24956;
+  --auth-accent-text: #ffffff;
+  --auth-text-primary: #3a2b39;
+  --auth-text-muted: #82676a;
+  --auth-border: #f0dcc0;
+  --auth-tint-1: #fbeee7;
+  --auth-tint-2: #f4e1dc;
+  --auth-tint-3: #f7ecd9;
 }
