@@ -7,12 +7,14 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-manrope);
   --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-sans);
-  /* STOR-61 Phase 4: Space Grotesk (headings/buttons) + Manrope (body) for the
-     auth/account screens only — scoped names so the rest of the app (Geist)
-     is untouched. */
+  --font-heading: var(--font-space-grotesk);
+  /* STOR-61 Phase 4 originally scoped Space Grotesk + Manrope to the
+     auth/account screens only. STOR-63 Phase 4 promoted those fonts to the
+     app-wide defaults (see `--font-sans`/`--font-heading` above); the
+     `-auth` aliases are kept so legacy scoped usages in /login and /account
+     still resolve to the same fonts without a rewrite. */
   --font-heading-auth: var(--font-space-grotesk);
   --font-body-auth: var(--font-manrope);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -53,23 +55,35 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/*
+ * STOR-63 Phase 4 (addendum) — Bolivian Beauty promoted to the permanent,
+ * app-wide default design system. These :root values ARE the Bolivian Beauty
+ * palette (warm cream/blue/plum, originally scoped to .theme-bolivian in
+ * STOR-61's signed-off auth screens). Promoting them to the shared shadcn
+ * semantic tokens means every current and future page inherits the palette
+ * automatically — no per-page opt-in, no future contributor reinventing
+ * per-page theming. The .theme-bolivian / .theme-siesta classes and every
+ * --auth-* variable below are kept untouched as a documented historical
+ * artifact (and as a working runtime switching surface for any future
+ * theme-picker story).
+ */
 :root {
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --card: #ffffff;
+  --card-foreground: #2a1830;
+  --popover: #ffffff;
+  --popover-foreground: #2a1830;
+  --primary: #4d7ea0;
+  --primary-foreground: #ffffff;
+  --secondary: #f3efdd;
+  --secondary-foreground: #2a1830;
+  --muted: #f3efdd;
+  --muted-foreground: #6e6488;
+  --accent: #e7f0ed;
+  --accent-foreground: #2a1830;
+  --destructive: #b3261e;
+  --border: #e7dfc0;
+  --input: #e7dfc0;
+  --ring: #4d7ea0;
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -84,8 +98,8 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --background: #fbf8ec;
+  --foreground: #2a1830;
 }
 
 .dark {
@@ -136,14 +150,15 @@
 
 /*
  * STOR-61 Phase 4 — auth/account palettes ("Bolivian Beauty" / "Siesta Hour"),
- * approved via a signed-off design canvas. Kept as CSS custom properties
- * (rather than folded into the app-wide shadcn tokens above) so a future
- * story can add a real runtime theme switcher without a rewrite — this story
- * only ever activates `.theme-bolivian`; `.theme-siesta` is fully defined
- * and ready, but not user-switchable yet (see the plan's Out of Scope).
- * Scoped to the auth/account subtree via these classes, not applied
- * app-wide, so the rest of the app (e.g. the diagnostics home page) is
- * untouched.
+ * approved via a signed-off design canvas. STOR-63 Phase 4 promoted the
+ * Bolivian Beauty palette values into the app-wide :root shadcn tokens above
+ * (so the whole app picks them up automatically); these classes are retained
+ * verbatim as a documented historical artifact and as a working runtime
+ * switching surface for any future theme-picker story. `.theme-bolivian` is
+ * still applied to /login and /account so their explicit `style={{...}}`
+ * inline color references resolve correctly. `.theme-siesta` is fully
+ * defined and ready, but not user-switchable yet (see the plan's Out of
+ * Scope).
  */
 .theme-bolivian {
   --auth-page-bg: #fbf8ec;

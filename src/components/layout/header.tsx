@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, LogOut, User } from "lucide-react";
+import { ChevronDown, LogOut, Shield, User } from "lucide-react";
 import { signOut, useSession } from "next-auth/react";
 
 import { Button } from "@/components/ui/button";
@@ -53,6 +53,7 @@ export function Header() {
   }
 
   const isSignedIn = status === "authenticated" && !session?.error;
+  const isAdministrator = session?.actorType === "Administrator";
 
   async function handleLogout() {
     setMenuOpen(false);
@@ -107,6 +108,17 @@ export function Header() {
                 <User className="size-4" />
                 Account
               </Link>
+              {isAdministrator && (
+                <Link
+                  href="/audit-log"
+                  role="menuitem"
+                  onClick={() => setMenuOpen(false)}
+                  className="flex items-center gap-2 px-3 py-2 hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
+                >
+                  <Shield className="size-4" />
+                  Audit Log
+                </Link>
+              )}
               <button
                 type="button"
                 role="menuitem"
