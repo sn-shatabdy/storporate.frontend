@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useSession } from "next-auth/react";
 import {
   AlertOctagon,
@@ -12,6 +13,7 @@ import {
   Upload,
 } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api/errors";
 import {
@@ -24,6 +26,11 @@ import {
   uploadPortfolioItem,
   type PortfolioItem,
 } from "@/lib/api/portfolio";
+import {
+  styleForAnalysisStatus,
+  type AnalysisStatus,
+} from "@/lib/portfolio/analysis-status";
+import { cn } from "cn";
 
 const PAGE_SIZE = 100;
 
@@ -602,15 +609,24 @@ interface PortfolioRowProps {
 
 function PortfolioRow({ item, deleting, onDelete }: PortfolioRowProps) {
   const categoryLabel = CATEGORY_LABEL_BY_VALUE[item.category] ?? item.category;
+  // `styleForAnalysisStatus` falls back to the NotAnalyzed entry if the wire
+  // value is something we don't know yet — mirrors the defensive lookup
+  // pattern `severityForAction` uses for unknown audit-log action strings.
+  const statusStyle = styleForAnalysisStatus(item.analysisStatus as AnalysisStatus);
+  const StatusIcon = statusStyle.icon;
+  const isAnalyzing = item.analysisStatus === "Analyzing";
   return (
-    <li className="flex items-start gap-4 border bg-card p-4 shadow-sm" style={{ borderRadius: 16, borderColor: "var(--border)" }}>
+    <li className="flex items-start gap-4 border bg-card p-4 shadow-sm transition-colors has-[a:hover]:border-primary" style={{ borderRadius: 16, borderColor: "var(--border)" }}>
       <span
         aria-hidden
         className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-lg bg-accent text-primary"
       >
         {item.submissionType === "File" ? <FileText className="size-5" /> : <Link2 className="size-5" />}
       </span>
-      <div className="min-w-0 flex-1">
+      <Link
+        href={`/dashboard/portfolio/${item.id}`}
+        className="min-w-0 flex-1 block rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+      >
         <div className="flex flex-wrap items-baseline gap-2">
           <p className="truncate text-sm font-semibold text-foreground">{item.label}</p>
           <span
@@ -622,7 +638,16 @@ function PortfolioRow({ item, deleting, onDelete }: PortfolioRowProps) {
         </div>
         <p className="mt-1 truncate text-xs text-muted-foreground">{secondaryLineFor(item)}</p>
         <p className="mt-1 text-xs text-muted-foreground">Added {formatCreatedAt(item.createdAt)}</p>
-      </div>
+      </Link>
+      <Badge
+        background={statusStyle.background}
+        color={statusStyle.color}
+        className="flex-shrink-0 mt-0.5"
+        aria-label={statusStyle.label}
+      >
+        <StatusIcon className={cn("size-3", isAnalyzing && "animate-spin")} />
+        {statusStyle.label}
+      </Badge>
       <button
         type="button"
         onClick={onDelete}

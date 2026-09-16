@@ -20,6 +20,37 @@ export interface PortfolioItem {
   externalUrl: string | null;
   description: string | null;
   createdAt: string;
+  // STOR-38: per-item AI analysis rollup surfaced on the list row so a
+  // student can see at a glance which items have been looked at. Full
+  // skill breakdown lives at `GET /api/portfolio/items/{id}/analysis` (see
+  // `getPortfolioItemAnalysis` below).
+  analysisStatus:
+    | "NotAnalyzed"
+    | "Analyzing"
+    | "Analyzed"
+    | "Failed"
+    | "Unsupported";
+  lastAnalyzedAt: string | null;
+}
+
+/** One skill reported by the AI analysis pipeline. */
+export interface PortfolioSkillFinding {
+  skillName: string;
+  confidenceBand: "Strong" | "Developing" | "Missing";
+  explanation: string;
+}
+
+/** Full analysis payload for a single portfolio item. */
+export interface PortfolioItemAnalysis {
+  status:
+    | "NotAnalyzed"
+    | "Analyzing"
+    | "Analyzed"
+    | "Failed"
+    | "Unsupported";
+  lastAnalyzedAt: string | null;
+  errorMessage: string | null;
+  skills: PortfolioSkillFinding[];
 }
 
 /**
@@ -184,4 +215,36 @@ export async function deletePortfolioItem(
     bearerToken: accessToken,
     signal,
   });
+}
+
+/** `GET /api/portfolio/items/{id}/analysis` — full AI analysis rollup for a
+ * single item, including per-skill `confidenceBand` + explanation. 404 if the
+ * item doesn't exist or belongs to a different account. */
+export async function getPortfolioItemAnalysis(
+  id: string,
+  accessToken: string,
+  signal?: AbortSignal,
+): Promise<PortfolioItemAnalysis> {
+  return apiCall<PortfolioItemAnalysis>(
+    "GET",
+    `/api/portfolio/items/${id}/analysis`,
+    { bearerToken: accessToken, signal },
+  );
+}
+
+/** `POST /api/portfolio/items/{id}/analysis/retry` — re-queues an item for
+ * AI analysis. Returns `202` with `{ portfolioItemId, newJobId }` on success
+ * (only valid when the current status is `Failed`); throws an `ApiError` with
+ * `errorCode: "portfolio_analysis_not_retryable"` and `status: 409` if the
+ * item is in any other status, and `404` if the item doesn't exist or isn't
+ * the caller's. No request body. */
+export async function retryPortfolioItemAnalysis(
+  id: string,
+  accessToken: string,
+): Promise<{ portfolioItemId: string; newJobId: string }> {
+  return apiCall<{ portfolioItemId: string; newJobId: string }>(
+    "POST",
+    `/api/portfolio/items/${id}/analysis/retry`,
+    { bearerToken: accessToken },
+  );
 }
