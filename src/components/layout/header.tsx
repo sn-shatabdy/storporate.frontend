@@ -54,6 +54,10 @@ export function Header() {
 
   const isSignedIn = status === "authenticated" && !session?.error;
   const isAdministrator = session?.actorType === "Administrator";
+  const isStudent = session?.actorType === "Student";
+
+  const isDashboardActive = pathname === "/dashboard";
+  const isPortfolioActive = pathname === "/dashboard/portfolio";
 
   async function handleLogout() {
     setMenuOpen(false);
@@ -72,9 +76,12 @@ export function Header() {
 
   return (
     <header className="flex w-full items-center justify-between border-b border-border/60 px-4 py-3 sm:px-6">
-      <Link href="/" aria-label="Storporate home">
-        <Wordmark />
-      </Link>
+      <div className="flex items-center gap-6">
+        <Link href="/" aria-label="Storporate home">
+          <Wordmark />
+        </Link>
+        {isStudent && <StudentNav isDashboardActive={isDashboardActive} isPortfolioActive={isPortfolioActive} />}
+      </div>
 
       {status === "loading" ? (
         <div className="h-8 w-20 animate-pulse rounded-full bg-muted" aria-hidden />
@@ -137,5 +144,54 @@ export function Header() {
         </Button>
       )}
     </header>
+  );
+}
+
+/**
+ * Student-only nav links rendered between the wordmark and the account
+ * menu. Active state is rendered as a heavier font weight plus a 2px
+ * bottom-border accent in the primary color — same general treatment as
+ * the account dropdown's active/hover styling, adapted for a top-bar link.
+ */
+function StudentNav({
+  isDashboardActive,
+  isPortfolioActive,
+}: {
+  isDashboardActive: boolean;
+  isPortfolioActive: boolean;
+}) {
+  return (
+    <nav aria-label="Student navigation" className="flex items-center gap-1">
+      <StudentNavLink href="/dashboard" active={isDashboardActive}>
+        Dashboard
+      </StudentNavLink>
+      <StudentNavLink href="/dashboard/portfolio" active={isPortfolioActive}>
+        My Portfolio
+      </StudentNavLink>
+    </nav>
+  );
+}
+
+function StudentNavLink({
+  href,
+  active,
+  children,
+}: {
+  href: string;
+  active: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      aria-current={active ? "page" : undefined}
+      className={
+        active
+          ? "relative inline-flex items-center px-1.5 pb-1 text-sm font-semibold text-foreground after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full after:bg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          : "relative inline-flex items-center px-1.5 pb-1 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full after:bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+      }
+    >
+      {children}
+    </Link>
   );
 }

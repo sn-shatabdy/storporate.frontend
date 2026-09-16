@@ -16,7 +16,7 @@ function buildUrl(path: string): string {
   return `${getApiBaseUrl()}${path}`;
 }
 
-async function throwForErrorResponse(response: Response): Promise<never> {
+export async function throwForErrorResponse(response: Response): Promise<never> {
   const raw = await response.text();
   let parsed: { errorCode?: string; message?: string } = {};
   try {

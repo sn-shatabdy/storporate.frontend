@@ -5,12 +5,12 @@ import type { ActorType } from "@/lib/api/auth";
 export const ACTOR_TYPE_META: Record<ActorType, { title: string; description: string; icon: LucideIcon }> = {
   Student: {
     title: "Student",
-    description: "Build your profile, collect verified evidence of your work, and get discovered.",
+    description: "Build your profile, grow your portfolio, and get discovered.",
     icon: GraduationCap,
   },
   Organization: {
     title: "Organization",
-    description: "Discover and evaluate students with real, verified proof of their skills.",
+    description: "Discover and evaluate students through their real, verified portfolios.",
     icon: Briefcase,
   },
   University: {

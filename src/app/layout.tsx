@@ -31,7 +31,7 @@ const manrope = Manrope({
 
 export const metadata: Metadata = {
   title: "Storporate",
-  description: "Storporate platform — verified evidence talent platform.",
+  description: "Storporate — the bridge between university students and the corporate world.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
