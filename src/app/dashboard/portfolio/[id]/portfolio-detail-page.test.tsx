@@ -60,6 +60,12 @@ function makeItem(overrides: Partial<PortfolioItem> = {}): PortfolioItem {
     createdAt: "2026-09-10T00:00:00Z",
     analysisStatus: "Analyzed",
     lastAnalyzedAt: "2026-09-10T00:05:00Z",
+    // STOR-39 — `skills` is the condensed per-item preview surfaced on the
+    // timeline list endpoint. Empty by default because the detail page
+    // already loads the full per-item analysis via `getPortfolioItemAnalysis`
+    // and reads `analysis.skills` from there; tests that need condensed
+    // skills can override this field on the fixture.
+    skills: [],
     ...overrides,
   };
 }
