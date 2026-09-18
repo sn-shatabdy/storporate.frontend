@@ -2,20 +2,6 @@ import { apiCall, getApiBaseUrl, throwForErrorResponse } from "./client";
 import type { PagedResult } from "./pagination";
 
 /**
- * Condensed AI-derived skill preview for a single portfolio item — mirrors
- * `Storporate.Modules.Portfolio.PortfolioSkillPreview` on the wire (skillName
- * + confidenceBand only, no explanation). Sits next to the full
- * {@link PortfolioSkillFinding} which is what
- * `GET /api/portfolio/items/{id}/analysis` returns and what the detail page
- * renders. Same literal-union `confidenceBand` so the same
- * `styleForConfidenceBand` map drives both call sites.
- */
-export interface PortfolioSkillPreview {
-  skillName: string;
-  confidenceBand: "Strong" | "Developing" | "Missing";
-}
-
-/**
  * Mirrors `Storporate.Modules.Portfolio.PortfolioItemResponse` (camelCase
  * over the wire). `StorageKey` is intentionally not exposed here — it stays
  * a server-side implementation detail of the `IArtifactStore` contract, just
@@ -45,14 +31,6 @@ export interface PortfolioItem {
     | "Failed"
     | "Unsupported";
   lastAnalyzedAt: string | null;
-  // STOR-39: condensed skill preview surfaced on the timeline row so a
-  // student can see at a glance which skills the AI identified for this
-  // item — without paying the N+1 cost of calling the per-item analysis
-  // endpoint for every entry. The backend co-fetches these in a single
-  // bulk query against `PortfolioSkillFindings`, scoped to this page's
-  // item ids only. Always an array (never null) — empty for not-yet-
-  // analyzed items. Explanations stay on the detail page.
-  skills: PortfolioSkillPreview[];
 }
 
 /** One skill reported by the AI analysis pipeline. */
