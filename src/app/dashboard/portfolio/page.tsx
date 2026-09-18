@@ -28,11 +28,19 @@ import {
 } from "@/lib/api/portfolio";
 import {
   styleForAnalysisStatus,
+  styleForConfidenceBand,
   type AnalysisStatus,
+  type ConfidenceBand,
 } from "@/lib/portfolio/analysis-status";
 import { cn } from "cn";
 
 const PAGE_SIZE = 100;
+
+/** How many condensed skill badges to show inline per timeline entry before
+ * collapsing the rest into a `+N more` pill. Approved on the design canvas
+ * as the right "read-it-at-a-glance" density for the timeline — fewer than
+ * the detail page's full skill list, more than zero. */
+const VISIBLE_SKILL_BADGES = 3;
 
 /** Map of the wire `category` value to the human-readable label shown in the
  * list. Mirrors `PORTFOLIO_CATEGORIES` but indexed by `value` so the list
@@ -468,16 +476,11 @@ export default function PortfolioPage() {
           )}
 
           {listState.status === "success" && listState.items.length > 0 && (
-            <ul className="flex flex-col gap-3">
-              {listState.items.map((item) => (
-                <PortfolioRow
-                  key={item.id}
-                  item={item}
-                  deleting={deletingId === item.id}
-                  onDelete={() => handleDelete(item.id)}
-                />
-              ))}
-            </ul>
+            <TimelineList
+              items={listState.items}
+              deletingId={deletingId}
+              onDelete={handleDelete}
+            />
           )}
 
           {listState.status === "error" && (
@@ -605,9 +608,12 @@ interface PortfolioRowProps {
   item: PortfolioItem;
   deleting: boolean;
   onDelete: () => void;
+  /** Position in the list — first and last rows get a half-dot treatment so
+   * the spine reads as a continuous line, not a row of floating circles. */
+  position: "first" | "middle" | "last" | "only";
 }
 
-function PortfolioRow({ item, deleting, onDelete }: PortfolioRowProps) {
+function PortfolioRow({ item, deleting, onDelete, position }: PortfolioRowProps) {
   const categoryLabel = CATEGORY_LABEL_BY_VALUE[item.category] ?? item.category;
   // `styleForAnalysisStatus` falls back to the NotAnalyzed entry if the wire
   // value is something we don't know yet — mirrors the defensive lookup
@@ -615,56 +621,200 @@ function PortfolioRow({ item, deleting, onDelete }: PortfolioRowProps) {
   const statusStyle = styleForAnalysisStatus(item.analysisStatus as AnalysisStatus);
   const StatusIcon = statusStyle.icon;
   const isAnalyzing = item.analysisStatus === "Analyzing";
+
+  // Solid dot for middle/only entries; half-circle "open" dots for the
+  // first and last so the spine reads as a continuous line. The dot's fill
+  // uses the same hex pair as the status badge so a glance reads the
+  // analysis state straight off the timeline shape.
+  const dotBg = statusStyle.color;
   return (
-    <li className="flex items-start gap-4 border bg-card p-4 shadow-sm transition-colors has-[a:hover]:border-primary" style={{ borderRadius: 16, borderColor: "var(--border)" }}>
+    <li className="relative flex items-start gap-4">
+      {/* Spine dot — positioned in the left rail, hidden below `sm:` in
+       *  favor of an inline dot at the top-left of the card. */}
       <span
         aria-hidden
-        className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-lg bg-accent text-primary"
+        className="hidden sm:flex shrink-0 pt-5"
+        style={{ width: 28, justifyContent: "center" }}
       >
-        {item.submissionType === "File" ? <FileText className="size-5" /> : <Link2 className="size-5" />}
-      </span>
-      <Link
-        href={`/dashboard/portfolio/${item.id}`}
-        className="min-w-0 flex-1 block rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-      >
-        <div className="flex flex-wrap items-baseline gap-2">
-          <p className="truncate text-sm font-semibold text-foreground">{item.label}</p>
+        {position === "first" || position === "last" ? (
           <span
-            className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
-            style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+            className="block h-5 w-5 rounded-full ring-4 ring-background"
+            style={{
+              background: `radial-gradient(circle at ${position === "first" ? "top" : "bottom"} 50%, ${dotBg} 50%, transparent 50%)`,
+              marginTop: position === "first" ? 2 : -2,
+            }}
+          />
+        ) : (
+          <span
+            className="block size-5 rounded-full ring-4 ring-background"
+            style={{ backgroundColor: dotBg, marginTop: 2 }}
+          />
+        )}
+      </span>
+
+      <div
+        className="min-w-0 flex-1 border bg-card p-4 shadow-sm transition-colors has-[a:hover]:border-primary sm:p-5"
+        style={{ borderRadius: 16, borderColor: "var(--border)" }}
+      >
+        <div className="flex items-start gap-4">
+          {/* Mobile-only dot — replaces the spine dot below the `sm:` breakpoint.
+           *  Uses the same hex pair as a 1px-thick ring inside a filled disc
+           *  so the visual language is consistent across breakpoints. */}
+          <span
+            aria-hidden
+            className="sm:hidden mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full ring-2 ring-card"
+            style={{ backgroundColor: dotBg }}
+          />
+
+          <span
+            aria-hidden
+            className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-lg bg-accent text-primary"
           >
-            {categoryLabel}
+            {item.submissionType === "File" ? <FileText className="size-5" /> : <Link2 className="size-5" />}
           </span>
+
+          <Link
+            href={`/dashboard/portfolio/${item.id}`}
+            className="min-w-0 flex-1 block rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          >
+            <div className="flex flex-wrap items-baseline gap-2">
+              <p className="truncate text-sm font-semibold text-foreground">{item.label}</p>
+              <span
+                className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+              >
+                {categoryLabel}
+              </span>
+            </div>
+            <p className="mt-1 truncate text-xs text-muted-foreground">{secondaryLineFor(item)}</p>
+            <p className="mt-1 text-xs text-muted-foreground">Added {formatCreatedAt(item.createdAt)}</p>
+          </Link>
+
+          <Badge
+            background={statusStyle.background}
+            color={statusStyle.color}
+            className="flex-shrink-0 mt-0.5"
+            aria-label={statusStyle.label}
+          >
+            <StatusIcon className={cn("size-3", isAnalyzing && "animate-spin")} />
+            {statusStyle.label}
+          </Badge>
+
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={deleting}
+            aria-label={`Delete ${item.label}`}
+            className="inline-flex size-9 shrink-0 items-center justify-center rounded-md text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+          </button>
         </div>
-        <p className="mt-1 truncate text-xs text-muted-foreground">{secondaryLineFor(item)}</p>
-        <p className="mt-1 text-xs text-muted-foreground">Added {formatCreatedAt(item.createdAt)}</p>
-      </Link>
-      <Badge
-        background={statusStyle.background}
-        color={statusStyle.color}
-        className="flex-shrink-0 mt-0.5"
-        aria-label={statusStyle.label}
-      >
-        <StatusIcon className={cn("size-3", isAnalyzing && "animate-spin")} />
-        {statusStyle.label}
-      </Badge>
-      <button
-        type="button"
-        onClick={onDelete}
-        disabled={deleting}
-        aria-label={`Delete ${item.label}`}
-        className="inline-flex size-9 shrink-0 items-center justify-center rounded-md text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-      </button>
+
+        {/* Condensed AI skill preview — only shown when the item has actually
+         *  been analyzed and the backend returned skill findings. Not-analyzed
+         *  items render only the status badge above. The overflow indicator
+         *  collapses N>VISIBLE_SKILL_BADGES extra findings into a single
+         *  "+N more" pill so a long skill list never breaks the row's shape. */}
+        {item.analysisStatus === "Analyzed" && item.skills.length > 0 && (
+          <SkillBadgeStrip skills={item.skills} max={VISIBLE_SKILL_BADGES} />
+        )}
+      </div>
     </li>
+  );
+}
+
+interface SkillBadgeStripProps {
+  skills: PortfolioItem["skills"];
+  max: number;
+}
+
+function SkillBadgeStrip({ skills, max }: SkillBadgeStripProps) {
+  const visible = skills.slice(0, max);
+  const overflow = skills.length - visible.length;
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-1.5 pl-[3.5rem] sm:pl-14">
+      {visible.map((skill, idx) => {
+        const bandStyle = styleForConfidenceBand(skill.confidenceBand as ConfidenceBand);
+        return (
+          <Badge
+            key={`${skill.skillName}-${idx}`}
+            background={bandStyle.background}
+            color={bandStyle.color}
+            aria-label={`${skill.skillName} — ${bandStyle.label}`}
+          >
+            <span className="font-semibold">{skill.skillName}</span>
+            <span aria-hidden className="opacity-70">·</span>
+            <span>{bandStyle.label}</span>
+          </Badge>
+        );
+      })}
+      {overflow > 0 && (
+        <span
+          aria-label={`${overflow} more skill${overflow === 1 ? "" : "s"}`}
+          className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground"
+        >
+          +{overflow} more
+        </span>
+      )}
+    </div>
+  );
+}
+
+interface TimelineListProps {
+  items: PortfolioItem[];
+  deletingId: string | null;
+  onDelete: (id: string) => void;
+}
+
+function TimelineList({ items, deletingId, onDelete }: TimelineListProps) {
+  // Position each row so first/last get half-dot spine treatments. n=1 is
+  // "only" — a single full dot with no spine behind it.
+  const positionFor = (idx: number): PortfolioRowProps["position"] => {
+    if (items.length === 1) return "only";
+    if (idx === 0) return "first";
+    if (idx === items.length - 1) return "last";
+    return "middle";
+  };
+
+  return (
+    <ol
+      role="list"
+      aria-label="Portfolio timeline"
+      className="relative flex flex-col"
+    >
+      {/* Vertical spine — a 1px line centered behind the dots. Hidden on
+       *  mobile (<sm) where we use the inline dot + a card-left accent
+       *  instead, since a left-rail column too narrow to be useful on a
+       *  390px-wide viewport. */}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute hidden sm:block"
+        style={{
+          left: 13, // (28px rail - 2px) — centers a 1px spine on the 20px dot
+          top: 24,
+          bottom: 24,
+          width: 1,
+          backgroundColor: "var(--border)",
+        }}
+      />
+      {items.map((item, idx) => (
+        <PortfolioRow
+          key={item.id}
+          item={item}
+          deleting={deletingId === item.id}
+          onDelete={() => onDelete(item.id)}
+          position={positionFor(idx)}
+        />
+      ))}
+    </ol>
   );
 }
 
 function PortfolioEmptyState() {
   return (
     <div
-      className="flex flex-col items-center gap-3 border bg-card p-12 text-center shadow-sm"
+      className="flex flex-col items-center gap-3 border bg-card p-10 text-center shadow-sm sm:p-12"
       style={{ borderRadius: 16, borderColor: "var(--border)" }}
     >
       <span
@@ -685,7 +835,7 @@ function PortfolioEmptyState() {
 function PortfolioErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <div
-      className="flex flex-col items-center gap-3 border bg-card p-12 text-center shadow-sm"
+      className="flex flex-col items-center gap-3 border bg-card p-10 text-center shadow-sm sm:p-12"
       style={{ borderRadius: 16, borderColor: "var(--border)" }}
     >
       <span
@@ -711,21 +861,50 @@ function PortfolioErrorState({ message, onRetry }: { message: string; onRetry: (
 
 function PortfolioListSkeleton() {
   return (
-    <ul className="flex flex-col gap-3" aria-label="Loading portfolio">
+    <ol aria-label="Loading portfolio" className="relative flex flex-col">
+      {/* Mobile-only: skeleton is just a stack of cards; no spine, no dots.
+       *  ≥sm: same vertical spine element the populated timeline uses so the
+       *  page doesn't reflow when the data loads. */}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute hidden sm:block"
+        style={{
+          left: 13,
+          top: 24,
+          bottom: 24,
+          width: 1,
+          backgroundColor: "var(--border)",
+        }}
+      />
       {Array.from({ length: 2 }).map((_, idx) => (
-        <li
-          key={idx}
-          className="flex items-start gap-4 border bg-card p-4 shadow-sm"
-          style={{ borderRadius: 16, borderColor: "var(--border)" }}
-        >
-          <span aria-hidden className="size-10 shrink-0 animate-pulse rounded-lg bg-muted" />
-          <div className="min-w-0 flex-1 space-y-2">
-            <span className="block h-3 w-1/3 animate-pulse rounded bg-muted" />
-            <span className="block h-3 w-1/2 animate-pulse rounded bg-muted" />
-            <span className="block h-3 w-1/4 animate-pulse rounded bg-muted" />
+        <li key={idx} className="relative flex items-start gap-4 pb-1" aria-hidden>
+          <span
+            aria-hidden
+            className="hidden sm:block shrink-0 pt-5"
+            style={{ width: 28, justifyContent: "center" }}
+          >
+            <span
+              className="block size-5 animate-pulse rounded-full bg-muted ring-4 ring-background"
+              style={{ marginTop: 2 }}
+            />
+          </span>
+          <div
+            className="min-w-0 flex-1 border bg-card p-4 shadow-sm sm:p-5"
+            style={{ borderRadius: 16, borderColor: "var(--border)" }}
+          >
+            <div className="flex items-start gap-4">
+              <span aria-hidden className="sm:hidden mt-0.5 size-6 shrink-0 animate-pulse rounded-full bg-muted" />
+              <span aria-hidden className="size-10 shrink-0 animate-pulse rounded-lg bg-muted" />
+              <div className="min-w-0 flex-1 space-y-2">
+                <span className="block h-3 w-1/3 animate-pulse rounded bg-muted" />
+                <span className="block h-3 w-1/2 animate-pulse rounded bg-muted" />
+                <span className="block h-3 w-1/4 animate-pulse rounded bg-muted" />
+              </div>
+              <span aria-hidden className="mt-0.5 size-9 shrink-0 animate-pulse rounded-md bg-muted" />
+            </div>
           </div>
         </li>
       ))}
-    </ul>
+    </ol>
   );
 }

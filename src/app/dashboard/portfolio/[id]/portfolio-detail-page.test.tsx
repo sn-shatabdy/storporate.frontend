@@ -60,6 +60,7 @@ function makeItem(overrides: Partial<PortfolioItem> = {}): PortfolioItem {
     createdAt: "2026-09-10T00:00:00Z",
     analysisStatus: "Analyzed",
     lastAnalyzedAt: "2026-09-10T00:05:00Z",
+    skills: [],
     ...overrides,
   };
 }

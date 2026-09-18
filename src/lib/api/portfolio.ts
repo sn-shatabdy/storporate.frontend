@@ -22,8 +22,8 @@ export interface PortfolioItem {
   createdAt: string;
   // STOR-38: per-item AI analysis rollup surfaced on the list row so a
   // student can see at a glance which items have been looked at. Full
-  // skill breakdown lives at `GET /api/portfolio/items/{id}/analysis` (see
-  // `getPortfolioItemAnalysis` below).
+  // skill breakdown (incl. explanation) lives at
+  // `GET /api/portfolio/items/{id}/analysis` (see `getPortfolioItemAnalysis`).
   analysisStatus:
     | "NotAnalyzed"
     | "Analyzing"
@@ -31,6 +31,21 @@ export interface PortfolioItem {
     | "Failed"
     | "Unsupported";
   lastAnalyzedAt: string | null;
+  // STOR-39: condensed AI skill preview surfaced directly on the list row
+  // (skill name + confidence band only — no explanation). Analyzed items
+  // return one entry per finding; not-yet-analyzed items return `[]`. The
+  // single bulk fetch against the backend's `PortfolioSkillFindings` table
+  // means this stays N+1-free (see STOR-39 Phase 1).
+  skills: PortfolioSkillPreview[];
+}
+
+/** Condensed skill-preview shape returned by `GET /api/portfolio/items` —
+ * `skillName` + `confidenceBand` only, deliberately omitting `explanation`
+ * (which only the detail page needs). Mirrors the backend's
+ * `PortfolioSkillPreview` record 1:1. */
+export interface PortfolioSkillPreview {
+  skillName: string;
+  confidenceBand: "Strong" | "Developing" | "Missing";
 }
 
 /** One skill reported by the AI analysis pipeline. */
