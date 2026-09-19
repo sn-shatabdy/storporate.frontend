@@ -783,21 +783,7 @@ function TimelineList({ items, deletingId, onDelete }: TimelineListProps) {
       aria-label="Portfolio timeline"
       className="relative flex flex-col"
     >
-      {/* Vertical spine — a 1px line centered behind the dots. Hidden on
-       *  mobile (<sm) where we use the inline dot + a card-left accent
-       *  instead, since a left-rail column too narrow to be useful on a
-       *  390px-wide viewport. */}
-      <span
-        aria-hidden
-        className="pointer-events-none absolute hidden sm:block"
-        style={{
-          left: 13, // (28px rail - 2px) — centers a 1px spine on the 20px dot
-          top: 24,
-          bottom: 24,
-          width: 1,
-          backgroundColor: "var(--border)",
-        }}
-      />
+      <TimelineSpine />
       {items.map((item, idx) => (
         <PortfolioRow
           key={item.id}
@@ -859,23 +845,31 @@ function PortfolioErrorState({ message, onRetry }: { message: string; onRetry: (
   );
 }
 
+/** Shared 1px vertical connector behind the timeline dots. Used by both the
+ * populated <TimelineList> and the loading <PortfolioListSkeleton> so the
+ * page never reflows when data lands. Hidden below `sm:` because the rail
+ * is too narrow to be useful at phone widths — the mobile layout switches
+ * to inline dots instead. */
+function TimelineSpine() {
+  return (
+    <span
+      aria-hidden
+      className="pointer-events-none absolute hidden sm:block"
+      style={{
+        left: 13, // (28px rail - 2px) — centers a 1px spine on the 20px dot
+        top: 24,
+        bottom: 24,
+        width: 1,
+        backgroundColor: "var(--border)",
+      }}
+    />
+  );
+}
+
 function PortfolioListSkeleton() {
   return (
     <ol aria-label="Loading portfolio" className="relative flex flex-col">
-      {/* Mobile-only: skeleton is just a stack of cards; no spine, no dots.
-       *  ≥sm: same vertical spine element the populated timeline uses so the
-       *  page doesn't reflow when the data loads. */}
-      <span
-        aria-hidden
-        className="pointer-events-none absolute hidden sm:block"
-        style={{
-          left: 13,
-          top: 24,
-          bottom: 24,
-          width: 1,
-          backgroundColor: "var(--border)",
-        }}
-      />
+      <TimelineSpine />
       {Array.from({ length: 2 }).map((_, idx) => (
         <li key={idx} className="relative flex items-start gap-4 pb-1" aria-hidden>
           <span

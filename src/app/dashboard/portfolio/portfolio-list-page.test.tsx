@@ -32,31 +32,16 @@ import {
   type PortfolioItem,
 } from "@/lib/api/portfolio";
 
+import { makePortfolioItem } from "./test-helpers";
+
 import PortfolioPage from "./page";
 
 const ACCESS_TOKEN = "test-access-token";
 
-/** Builds a PortfolioItem fixture with sensible defaults; tests override
- * the analysis-related fields + skills as needed. */
-function makeItem(overrides: Partial<PortfolioItem> = {}): PortfolioItem {
-  return {
-    id: `item-${Math.random().toString(36).slice(2, 8)}`,
-    label: "Capstone Project Writeup",
-    category: "Document",
-    customCategoryText: null,
-    submissionType: "File",
-    originalFileName: "capstone.pdf",
-    contentType: "application/pdf",
-    fileSizeBytes: 1024 * 250,
-    externalUrl: null,
-    description: null,
-    createdAt: "2026-09-10T00:00:00Z",
-    analysisStatus: "Analyzed",
-    lastAnalyzedAt: "2026-09-10T00:05:00Z",
-    skills: [],
-    ...overrides,
-  };
-}
+/** Local alias for the shared item-fixture builder. Tests in this file
+ * always override `id` (because each test renders multiple items), so the
+ * default id from the shared helper is just a placeholder. */
+const makeItem = makePortfolioItem;
 
 /** Wires the session + list-fetch mocks up to a successful fetch with the
  * supplied items. Returns the listItems spy for per-test overrides. */
@@ -75,6 +60,15 @@ function setupMocks(items: PortfolioItem[]) {
     hasNext: false,
   });
   vi.mocked(deletePortfolioItem).mockResolvedValue(undefined);
+}
+
+/** Asserts none of the three confidence-band labels are rendered. Used by
+ * the "no skill badges" cases to prove the SkillBadgeStrip region is fully
+ * absent (rather than just checking one of the band texts). */
+function expectNoBandLabels() {
+  expect(screen.queryByText("Strong")).not.toBeInTheDocument();
+  expect(screen.queryByText("Developing")).not.toBeInTheDocument();
+  expect(screen.queryByText("Missing")).not.toBeInTheDocument();
 }
 
 beforeEach(() => {
@@ -176,9 +170,7 @@ describe("PortfolioPage — populated timeline", () => {
     // We check via the data-testid-like query: the strip wraps badges in a
     // div with no label/role, so the most reliable negative assertion is
     // that no badge with a band-label text appears for this item.
-    expect(screen.queryByText("Strong")).not.toBeInTheDocument();
-    expect(screen.queryByText("Developing")).not.toBeInTheDocument();
-    expect(screen.queryByText("Missing")).not.toBeInTheDocument();
+    expectNoBandLabels();
   });
 
   it("does NOT render skill badges when the item is Analyzed but skills: []", async () => {
@@ -198,9 +190,7 @@ describe("PortfolioPage — populated timeline", () => {
       await screen.findByText("Analyzed But Empty"),
     ).toBeInTheDocument();
 
-    expect(screen.queryByText("Strong")).not.toBeInTheDocument();
-    expect(screen.queryByText("Developing")).not.toBeInTheDocument();
-    expect(screen.queryByText("Missing")).not.toBeInTheDocument();
+    expectNoBandLabels();
   });
 
   it("caps the visible skill badges and shows a +N more overflow indicator", async () => {
