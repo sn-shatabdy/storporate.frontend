@@ -4,11 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import {
-  AlertOctagon,
   FileText,
   Inbox,
   Link2,
   Loader2,
+  OctagonAlert,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -36,7 +36,7 @@ import { cn } from "cn";
 
 const PAGE_SIZE = 100;
 
-/** How many condensed skill badges to show inline per timeline entry before
+/** How many condensed skill pills to show inline per timeline entry before
  * collapsing the rest into a `+N more` pill. Approved on the design canvas
  * as the right "read-it-at-a-glance" density for the timeline — fewer than
  * the detail page's full skill list, more than zero. */
@@ -100,10 +100,12 @@ function formatCreatedAt(iso: string): string {
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
-function summaryLine(count: number): string {
-  if (count === 0) return "No items yet";
-  if (count === 1) return "1 item in your portfolio";
-  return `${count} items in your portfolio`;
+/** Header-summary right-hand copy. Pluralizes both counts and only mentions
+ * skills when at least one was identified across the loaded items. */
+function summaryLine(itemCount: number, skillCount: number): string {
+  const itemPart = `${itemCount} ${itemCount === 1 ? "item" : "items"}`;
+  if (skillCount <= 0) return itemPart;
+  return `${itemPart} · ${skillCount} ${skillCount === 1 ? "skill identified" : "skills identified"}`;
 }
 
 /** Per-error-code user-facing message. Kept short and concrete so the
@@ -449,7 +451,11 @@ export default function PortfolioPage() {
 
             <div className="flex flex-wrap items-center justify-end gap-3">
               {submitError && (
-                <p role="alert" className="text-sm text-destructive">
+                <p
+                  role="alert"
+                  aria-label="Submission error"
+                  className="max-w-full break-words text-sm text-destructive [overflow-wrap:anywhere] [display:-webkit-box] [-webkit-line-clamp:3] [-webkit-box-orient:vertical] [overflow:hidden]"
+                >
                   {submitError}
                 </p>
               )}
@@ -461,39 +467,482 @@ export default function PortfolioPage() {
           </form>
         </section>
 
-        <section className="flex flex-col gap-4">
-          <div className="flex items-baseline justify-between gap-3">
-            <h2 className="font-heading text-lg font-semibold text-foreground">Your portfolio</h2>
-            {listState.status === "success" && (
-              <span className="text-xs font-medium text-muted-foreground">{summaryLine(listState.totalCount)}</span>
-            )}
-          </div>
-
-          {listState.status === "loading" && <PortfolioListSkeleton />}
-
-          {listState.status === "success" && listState.items.length === 0 && (
-            <PortfolioEmptyState />
-          )}
-
-          {listState.status === "success" && listState.items.length > 0 && (
-            <TimelineList
-              items={listState.items}
-              deletingId={deletingId}
-              onDelete={handleDelete}
-            />
-          )}
-
-          {listState.status === "error" && (
-            <PortfolioErrorState
-              message={listState.message}
-              onRetry={() => setListVersion((v) => v + 1)}
-            />
-          )}
-        </section>
+        <TimelineSection
+          listState={listState}
+          deletingId={deletingId}
+          onDelete={handleDelete}
+          onRetry={() => setListVersion((v) => v + 1)}
+        />
       </div>
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Timeline section (post-form) — rebuilt to match the approved design canvas.
+// ---------------------------------------------------------------------------
+
+interface TimelineSectionProps {
+  listState: ListState;
+  deletingId: string | null;
+  onDelete: (id: string) => void;
+  onRetry: () => void;
+}
+
+function TimelineSection({ listState, deletingId, onDelete, onRetry }: TimelineSectionProps) {
+  // Header summary line is shown only in the populated state.
+  const summary =
+    listState.status === "success"
+      ? summaryLine(
+          listState.totalCount,
+          listState.items.reduce((sum, item) => sum + item.skills.length, 0),
+        )
+      : null;
+
+  return (
+    <section className="flex flex-col gap-7">
+      <div className="flex items-baseline justify-between gap-3">
+        <div>
+          <h2 className="font-heading text-xl font-semibold text-foreground">
+            Your portfolio
+          </h2>
+          <p className="mt-1 text-[13px] text-muted-foreground">
+            Every item you&apos;ve submitted, newest first — click through to see what the AI found.
+          </p>
+        </div>
+        {summary !== null && (
+          <span className="whitespace-nowrap text-xs font-medium text-muted-foreground">
+            {summary}
+          </span>
+        )}
+      </div>
+
+      {listState.status === "loading" && <PortfolioListSkeleton />}
+
+      {listState.status === "success" && listState.items.length === 0 && (
+        <PortfolioEmptyState />
+      )}
+
+      {listState.status === "success" && listState.items.length > 0 && (
+        <TimelineList items={listState.items} deletingId={deletingId} onDelete={onDelete} />
+      )}
+
+      {listState.status === "error" && (
+        <PortfolioErrorState message={listState.message} onRetry={onRetry} />
+      )}
+    </section>
+  );
+}
+
+interface TimelineListProps {
+  items: PortfolioItem[];
+  deletingId: string | null;
+  onDelete: (id: string) => void;
+}
+
+function TimelineList({ items, deletingId, onDelete }: TimelineListProps) {
+  return (
+    <ol
+      role="list"
+      aria-label="Portfolio timeline"
+      className="relative flex flex-col gap-5 sm:gap-7"
+    >
+      <TimelineSpine variant="solid" />
+      {items.map((item) => (
+        <PortfolioRow
+          key={item.id}
+          item={item}
+          deleting={deletingId === item.id}
+          onDelete={() => onDelete(item.id)}
+        />
+      ))}
+    </ol>
+  );
+}
+
+/** Solid 2px spine used by the populated + loading states. Always visible —
+ * the design keeps the rail at every breakpoint (the dot gets smaller on
+ * phone but the spine stays). Positioned so a 14px dot centered in the 32px
+ * rail column sits exactly over it. */
+function TimelineSpine({ variant }: { variant: "solid" | "dashed" }) {
+  const dashedStyle: React.CSSProperties = {
+    backgroundImage:
+      "repeating-linear-gradient(to bottom, var(--border) 0 6px, transparent 6px 12px)",
+    backgroundColor: "transparent",
+  };
+  const solidStyle: React.CSSProperties = {
+    backgroundColor: "var(--border)",
+  };
+
+  return (
+    <span
+      aria-hidden
+      className="pointer-events-none absolute"
+      style={{
+        left: 15,
+        top: 8,
+        bottom: 8,
+        width: 2,
+        ...(variant === "dashed" ? dashedStyle : solidStyle),
+      }}
+    />
+  );
+}
+
+interface PortfolioRowProps {
+  item: PortfolioItem;
+  deleting: boolean;
+  onDelete: () => void;
+}
+
+/** Single timeline row. Same DOM at every breakpoint; sizing and reorder via
+ * `sm:` variants. Exactly one dot, one delete button, one date — keeps both
+ * the live keyboard focus order and the test selectors unambiguous. The
+ * card is a 2-column CSS grid: the icon owns column 1 on desktop and stacks
+ * to the left of the title on mobile; the title/pills/meta cells are laid
+ * out via `grid-template-areas` so we can relocate the meta cell (date +
+ * delete) between mobile (last row, top-bordered footer) and desktop
+ * (top-right of the title row) without duplicating any DOM. */
+function PortfolioRow({ item, deleting, onDelete }: PortfolioRowProps) {
+  const categoryLabel = CATEGORY_LABEL_BY_VALUE[item.category] ?? item.category;
+  const statusStyle = styleForAnalysisStatus(item.analysisStatus as AnalysisStatus);
+  const StatusIcon = statusStyle.icon;
+  const isAnalyzing = item.analysisStatus === "Analyzing";
+  const dotFill = statusStyle.color;
+  const showSkills = item.analysisStatus === "Analyzed" && item.skills.length > 0;
+  const visibleSkills = item.skills.slice(0, VISIBLE_SKILL_BADGES);
+  const overflowCount = item.skills.length - visibleSkills.length;
+
+  const formattedDate = formatCreatedAt(item.createdAt);
+  const SubmissionIcon = item.submissionType === "File" ? FileText : Link2;
+
+  return (
+    <li className="relative grid grid-cols-[24px_1fr] items-start gap-3 sm:grid-cols-[32px_1fr] sm:gap-5">
+      {/* Left rail — the timeline dot. Single full circle for every row;
+       * page-background ring makes the spine appear to pass behind it. */}
+      <span
+        aria-hidden
+        className="flex items-start justify-center pt-[18px] sm:pt-6"
+      >
+        <span
+          aria-hidden
+          className="block size-3 rounded-full shadow-[0_0_0_3px_var(--background)] sm:size-[14px] sm:shadow-[0_0_0_4px_var(--background)]"
+          style={{ backgroundColor: dotFill }}
+        />
+      </span>
+
+      {/* Single-DOM card. Grid areas relocate the meta cell between the
+       *  mobile (last row, top-bordered footer) and desktop (top-right of
+       *  the title) layouts — see the `grid-template-areas` and
+       *  `grid-area` classes below. */}
+      <div
+        className="portfolio-card grid min-w-0 grid-cols-[auto_minmax(0,1fr)] grid-rows-[auto_auto_auto] gap-x-2.5 gap-y-0 border bg-card p-3.5 transition-colors has-[a:hover]:border-primary [grid-template-areas:'icon_title''pills_pills''meta_meta'] sm:gap-x-3 sm:rounded-2xl sm:px-[22px] sm:py-5 sm:[grid-template-areas:'icon_title_meta''pills_pills_pills']"
+        style={{
+          borderRadius: 14,
+          borderColor: "var(--border)",
+          boxShadow: "0 1px 2px rgba(42,24,48,0.06)",
+        }}
+      >
+        <span
+          aria-hidden
+          className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-[9px] bg-accent text-primary [grid-area:icon] sm:size-[38px] sm:rounded-[10px]"
+        >
+          <SubmissionIcon className="size-[15px] sm:size-[18px]" />
+        </span>
+
+        {/* Title cell — category pill wraps to the right of the title on
+         *  desktop, drops below on mobile via block/inline toggling. The
+         *  title wraps (not truncates) on phone so longer labels stay
+         *  readable; secondary line below may still truncate. */}
+        <div className="min-w-0 [grid-area:title]">
+          <Link
+            href={`/dashboard/portfolio/${item.id}`}
+            className="block break-words text-sm font-semibold leading-[1.3] text-foreground no-underline outline-none focus-visible:ring-2 focus-visible:ring-ring/40 sm:inline sm:text-[15px] sm:leading-tight"
+          >
+            {item.label}
+          </Link>
+          <span
+            className="mt-[5px] inline-flex items-center rounded-full px-[9px] py-[3px] text-[10.5px] font-semibold whitespace-nowrap sm:mt-0 sm:ml-2 sm:px-2.5 sm:text-[11px]"
+            style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
+          >
+            {categoryLabel}
+          </span>
+          <p className="mt-1 truncate text-xs text-muted-foreground sm:mt-1 sm:text-[12.5px]">
+            {secondaryLineFor(item)}
+          </p>
+        </div>
+
+        {/* Meta cell — date + delete button. Always present; visually moves
+         *  to the footer row on mobile (last grid row, top-bordered) and to
+         *  the top-right of the title row on desktop. */}
+        <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-[color:var(--border)] pt-2.5 [grid-area:meta] sm:mt-0 sm:justify-end sm:border-0 sm:pt-0">
+          <span className="text-[11px] text-muted-foreground sm:text-[11.5px]">{formattedDate}</span>
+          <DeleteButton
+            item={item}
+            deleting={deleting}
+            onDelete={onDelete}
+          />
+        </div>
+
+        {/* Pills cell — status + skill pills + +N more. */}
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 [grid-area:pills] sm:mt-3 sm:gap-2">
+          <StatusPill
+            background={statusStyle.background}
+            color={statusStyle.color}
+            label={statusStyle.label}
+            icon={<StatusIcon className={cn("size-3 sm:size-[11px]", isAnalyzing && "animate-spin")} />}
+          />
+          {showSkills && (
+            <>
+              <span
+                aria-hidden
+                className="block h-3.5 w-px"
+                style={{ backgroundColor: "var(--border)" }}
+              />
+              <SkillBadgeStrip
+                visibleSkills={visibleSkills}
+                overflowCount={overflowCount}
+              />
+            </>
+          )}
+        </div>
+      </div>
+    </li>
+  );
+}
+
+interface DeleteButtonProps {
+  item: PortfolioItem;
+  deleting: boolean;
+  onDelete: () => void;
+}
+
+function DeleteButton({ item, deleting, onDelete }: DeleteButtonProps) {
+  return (
+    <button
+      type="button"
+      onClick={onDelete}
+      disabled={deleting}
+      aria-label={`Delete ${item.label}`}
+      className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-[#b3261e] transition-colors hover:bg-[rgba(179,38,30,0.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b3261e]/40 disabled:cursor-not-allowed disabled:opacity-50 sm:size-[34px]"
+    >
+      {deleting ? (
+        <Loader2 className="size-[14px] animate-spin sm:size-[15px]" />
+      ) : (
+        <Trash2 className="size-[14px] sm:size-[15px]" />
+      )}
+    </button>
+  );
+}
+
+interface StatusPillProps {
+  background: string;
+  color: string;
+  label: string;
+  icon: React.ReactNode;
+}
+
+function StatusPill({ background, color, label, icon }: StatusPillProps) {
+  return (
+    <Badge background={background} color={color} aria-label={label} className="px-[9px] text-[10.5px] sm:px-2.5 sm:text-[11px]">
+      <span aria-hidden>{icon}</span>
+      <span>{label}</span>
+    </Badge>
+  );
+}
+
+interface SkillBadgeStripProps {
+  visibleSkills: PortfolioItem["skills"];
+  overflowCount: number;
+}
+
+function SkillBadgeStrip({ visibleSkills, overflowCount }: SkillBadgeStripProps) {
+  return (
+    <>
+      {visibleSkills.map((skill, idx) => {
+        const bandStyle = styleForConfidenceBand(skill.confidenceBand as ConfidenceBand);
+        return (
+          <Badge
+            key={`${skill.skillName}-${idx}`}
+            background={bandStyle.background}
+            color={bandStyle.color}
+            aria-label={`${skill.skillName} — ${bandStyle.label}`}
+            title={`${skill.skillName} — ${bandStyle.label}`}
+            className="px-[9px] text-[10.5px] sm:px-2.5 sm:text-[11px]"
+          >
+            <span className="font-semibold">{skill.skillName}</span>
+          </Badge>
+        );
+      })}
+      {overflowCount > 0 && (
+        <span
+          aria-label={`${overflowCount} more skill${overflowCount === 1 ? "" : "s"}`}
+          className="inline-flex items-center rounded-full bg-muted px-[9px] py-[3px] text-[10.5px] font-semibold text-muted-foreground sm:px-2.5 sm:text-[11px]"
+        >
+          +{overflowCount} more
+        </span>
+      )}
+    </>
+  );
+}
+
+function PortfolioEmptyState() {
+  return (
+    <div className="relative">
+      <TimelineSpine variant="dashed" />
+      <div className="flex justify-center pt-[66px]">
+        <div
+          className="flex w-full max-w-[520px] flex-col items-center gap-3.5 border bg-card px-6 py-10 text-center sm:px-14 sm:py-12"
+          style={{
+            borderRadius: 16,
+            borderColor: "var(--border)",
+            boxShadow: "0 1px 2px rgba(42,24,48,0.06)",
+          }}
+        >
+          <span
+            aria-hidden
+            className="flex size-12 items-center justify-center rounded-full"
+            style={{ backgroundColor: "var(--muted)", color: "var(--muted-foreground)" }}
+          >
+            <Inbox className="size-5" />
+          </span>
+          <h3 className="font-heading text-lg font-semibold text-foreground">
+            Your timeline starts here
+          </h3>
+          <p className="max-w-[360px] text-sm text-muted-foreground">
+            Add your first file or link above — every item you submit shows up here, in order, with whatever the AI finds in it.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PortfolioErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="flex justify-center pt-3">
+      <div
+        className="flex w-full max-w-[520px] flex-col items-center gap-3.5 border bg-card px-6 py-10 text-center sm:px-14 sm:py-12"
+        style={{
+          borderRadius: 16,
+          borderColor: "var(--border)",
+          boxShadow: "0 1px 2px rgba(42,24,48,0.06)",
+        }}
+      >
+        <span
+          aria-hidden
+          className="flex size-12 items-center justify-center rounded-full"
+          style={{ backgroundColor: "#FBE9E7", color: "#B3261E" }}
+        >
+          <OctagonAlert className="size-5" />
+        </span>
+        <h3 className="font-heading text-lg font-semibold text-foreground">
+          Couldn&apos;t load your portfolio
+        </h3>
+        <p className="max-w-[360px] text-sm text-muted-foreground">
+          We couldn&apos;t reach the backend just now. Check your connection or the API status, then try again.
+        </p>
+        <p
+          aria-label="Error details"
+          className="max-w-[360px] font-mono text-xs text-muted-foreground/80 wrap-break-word [display:-webkit-box] [-webkit-line-clamp:3] [-webkit-box-orient:vertical] [overflow:hidden]"
+        >
+          {message}
+        </p>
+        <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+          Retry
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function PortfolioListSkeleton() {
+  const rowSpecs = [
+    [
+      { height: 12, width: "45%" },
+      { height: 10, width: "30%" },
+      { height: 18, width: "22%", isPill: true },
+    ],
+    [
+      { height: 12, width: "55%" },
+      { height: 10, width: "35%" },
+      { height: 18, width: "26%", isPill: true },
+    ],
+    [
+      { height: 12, width: "40%" },
+      { height: 10, width: "28%" },
+    ],
+  ];
+
+  return (
+    <ol
+      role="list"
+      aria-label="Loading portfolio"
+      aria-busy
+      className="relative flex flex-col gap-5 sm:gap-7"
+    >
+      <TimelineSpine variant="solid" />
+      {rowSpecs.map((bars, rowIdx) => (
+        <li
+          key={rowIdx}
+          aria-hidden
+          className="relative grid grid-cols-[24px_1fr] items-start gap-3 sm:grid-cols-[32px_1fr] sm:gap-5"
+        >
+          <span className="flex items-start justify-center pt-[18px] sm:pt-6">
+            <span
+              className="block size-3 animate-pulse rounded-full bg-muted-foreground shadow-[0_0_0_3px_var(--background)] sm:size-[14px] sm:shadow-[0_0_0_4px_var(--background)] motion-reduce:animate-none"
+              style={{ animationDelay: `${rowIdx * 0.2}s` }}
+            />
+          </span>
+
+          <div
+            className="border bg-card"
+            style={{
+              borderRadius: 14,
+              padding: 14,
+              borderColor: "var(--border)",
+              boxShadow: "0 1px 2px rgba(42,24,48,0.06)",
+            }}
+          >
+            <div className="flex items-start gap-2.5 sm:gap-3">
+              <span
+                aria-hidden
+                className="mt-0.5 block shrink-0 animate-pulse rounded-[9px] bg-muted motion-reduce:animate-none sm:rounded-[10px]"
+                style={{
+                  width: 32,
+                  height: 32,
+                  animationDelay: `${rowIdx * 0.2}s`,
+                }}
+              />
+              <div className="min-w-0 flex-1 space-y-2 pt-0.5">
+                {bars.map((bar, barIdx) => (
+                  <span
+                    key={barIdx}
+                    aria-hidden
+                    className="block animate-pulse bg-muted motion-reduce:animate-none"
+                    style={{
+                      height: bar.height,
+                      width: bar.width,
+                      borderRadius: bar.isPill ? 999 : 6,
+                      marginTop: bar.isPill ? 4 : 0,
+                      animationDelay: `${rowIdx * 0.2}s`,
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Form helpers — kept verbatim above the timeline section for context. The
+// submission form region above `TimelineSection` is intentionally untouched;
+// these helpers are only consumed by the form, not the timeline.
+// ---------------------------------------------------------------------------
 
 interface TabButtonProps {
   active: boolean;
@@ -596,309 +1045,10 @@ function LinkField({ value, onChange }: LinkFieldProps) {
         id="portfolio-url"
         type="url"
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(event) => onChange(event.target.value)}
         placeholder="https://github.com/you/project"
         className="h-9 rounded-md border border-input bg-background px-2.5 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
       />
     </div>
-  );
-}
-
-interface PortfolioRowProps {
-  item: PortfolioItem;
-  deleting: boolean;
-  onDelete: () => void;
-  /** Position in the list — first and last rows get a half-dot treatment so
-   * the spine reads as a continuous line, not a row of floating circles. */
-  position: "first" | "middle" | "last" | "only";
-}
-
-function PortfolioRow({ item, deleting, onDelete, position }: PortfolioRowProps) {
-  const categoryLabel = CATEGORY_LABEL_BY_VALUE[item.category] ?? item.category;
-  // `styleForAnalysisStatus` falls back to the NotAnalyzed entry if the wire
-  // value is something we don't know yet — mirrors the defensive lookup
-  // pattern `severityForAction` uses for unknown audit-log action strings.
-  const statusStyle = styleForAnalysisStatus(item.analysisStatus as AnalysisStatus);
-  const StatusIcon = statusStyle.icon;
-  const isAnalyzing = item.analysisStatus === "Analyzing";
-
-  // Solid dot for middle/only entries; half-circle "open" dots for the
-  // first and last so the spine reads as a continuous line. The dot's fill
-  // uses the same hex pair as the status badge so a glance reads the
-  // analysis state straight off the timeline shape.
-  const dotBg = statusStyle.color;
-  return (
-    <li className="relative flex items-start gap-4">
-      {/* Spine dot — positioned in the left rail, hidden below `sm:` in
-       *  favor of an inline dot at the top-left of the card. */}
-      <span
-        aria-hidden
-        className="hidden sm:flex shrink-0 pt-5"
-        style={{ width: 28, justifyContent: "center" }}
-      >
-        {position === "first" || position === "last" ? (
-          <span
-            className="block h-5 w-5 rounded-full ring-4 ring-background"
-            style={{
-              background: `radial-gradient(circle at ${position === "first" ? "top" : "bottom"} 50%, ${dotBg} 50%, transparent 50%)`,
-              marginTop: position === "first" ? 2 : -2,
-            }}
-          />
-        ) : (
-          <span
-            className="block size-5 rounded-full ring-4 ring-background"
-            style={{ backgroundColor: dotBg, marginTop: 2 }}
-          />
-        )}
-      </span>
-
-      <div
-        className="min-w-0 flex-1 border bg-card p-4 shadow-sm transition-colors has-[a:hover]:border-primary sm:p-5"
-        style={{ borderRadius: 16, borderColor: "var(--border)" }}
-      >
-        <div className="flex items-start gap-4">
-          {/* Mobile-only dot — replaces the spine dot below the `sm:` breakpoint.
-           *  Uses the same hex pair as a 1px-thick ring inside a filled disc
-           *  so the visual language is consistent across breakpoints. */}
-          <span
-            aria-hidden
-            className="sm:hidden mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full ring-2 ring-card"
-            style={{ backgroundColor: dotBg }}
-          />
-
-          <span
-            aria-hidden
-            className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-lg bg-accent text-primary"
-          >
-            {item.submissionType === "File" ? <FileText className="size-5" /> : <Link2 className="size-5" />}
-          </span>
-
-          <Link
-            href={`/dashboard/portfolio/${item.id}`}
-            className="min-w-0 flex-1 block rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-          >
-            <div className="flex flex-wrap items-baseline gap-2">
-              <p className="truncate text-sm font-semibold text-foreground">{item.label}</p>
-              <span
-                className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                style={{ backgroundColor: "var(--accent)", color: "var(--accent-foreground)" }}
-              >
-                {categoryLabel}
-              </span>
-            </div>
-            <p className="mt-1 truncate text-xs text-muted-foreground">{secondaryLineFor(item)}</p>
-            <p className="mt-1 text-xs text-muted-foreground">Added {formatCreatedAt(item.createdAt)}</p>
-          </Link>
-
-          <Badge
-            background={statusStyle.background}
-            color={statusStyle.color}
-            className="flex-shrink-0 mt-0.5"
-            aria-label={statusStyle.label}
-          >
-            <StatusIcon className={cn("size-3", isAnalyzing && "animate-spin")} />
-            {statusStyle.label}
-          </Badge>
-
-          <button
-            type="button"
-            onClick={onDelete}
-            disabled={deleting}
-            aria-label={`Delete ${item.label}`}
-            className="inline-flex size-9 shrink-0 items-center justify-center rounded-md text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-          </button>
-        </div>
-
-        {/* Condensed AI skill preview — only shown when the item has actually
-         *  been analyzed and the backend returned skill findings. Not-analyzed
-         *  items render only the status badge above. The overflow indicator
-         *  collapses N>VISIBLE_SKILL_BADGES extra findings into a single
-         *  "+N more" pill so a long skill list never breaks the row's shape. */}
-        {item.analysisStatus === "Analyzed" && item.skills.length > 0 && (
-          <SkillBadgeStrip skills={item.skills} max={VISIBLE_SKILL_BADGES} />
-        )}
-      </div>
-    </li>
-  );
-}
-
-interface SkillBadgeStripProps {
-  skills: PortfolioItem["skills"];
-  max: number;
-}
-
-function SkillBadgeStrip({ skills, max }: SkillBadgeStripProps) {
-  const visible = skills.slice(0, max);
-  const overflow = skills.length - visible.length;
-  return (
-    <div className="mt-3 flex flex-wrap items-center gap-1.5 pl-[3.5rem] sm:pl-14">
-      {visible.map((skill, idx) => {
-        const bandStyle = styleForConfidenceBand(skill.confidenceBand as ConfidenceBand);
-        return (
-          <Badge
-            key={`${skill.skillName}-${idx}`}
-            background={bandStyle.background}
-            color={bandStyle.color}
-            aria-label={`${skill.skillName} — ${bandStyle.label}`}
-          >
-            <span className="font-semibold">{skill.skillName}</span>
-            <span aria-hidden className="opacity-70">·</span>
-            <span>{bandStyle.label}</span>
-          </Badge>
-        );
-      })}
-      {overflow > 0 && (
-        <span
-          aria-label={`${overflow} more skill${overflow === 1 ? "" : "s"}`}
-          className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground"
-        >
-          +{overflow} more
-        </span>
-      )}
-    </div>
-  );
-}
-
-interface TimelineListProps {
-  items: PortfolioItem[];
-  deletingId: string | null;
-  onDelete: (id: string) => void;
-}
-
-function TimelineList({ items, deletingId, onDelete }: TimelineListProps) {
-  // Position each row so first/last get half-dot spine treatments. n=1 is
-  // "only" — a single full dot with no spine behind it.
-  const positionFor = (idx: number): PortfolioRowProps["position"] => {
-    if (items.length === 1) return "only";
-    if (idx === 0) return "first";
-    if (idx === items.length - 1) return "last";
-    return "middle";
-  };
-
-  return (
-    <ol
-      role="list"
-      aria-label="Portfolio timeline"
-      className="relative flex flex-col"
-    >
-      <TimelineSpine />
-      {items.map((item, idx) => (
-        <PortfolioRow
-          key={item.id}
-          item={item}
-          deleting={deletingId === item.id}
-          onDelete={() => onDelete(item.id)}
-          position={positionFor(idx)}
-        />
-      ))}
-    </ol>
-  );
-}
-
-function PortfolioEmptyState() {
-  return (
-    <div
-      className="flex flex-col items-center gap-3 border bg-card p-10 text-center shadow-sm sm:p-12"
-      style={{ borderRadius: 16, borderColor: "var(--border)" }}
-    >
-      <span
-        aria-hidden
-        className="flex size-12 items-center justify-center rounded-full"
-        style={{ backgroundColor: "var(--muted)", color: "var(--muted-foreground)" }}
-      >
-        <Inbox className="size-5" />
-      </span>
-      <h3 className="font-heading text-lg font-semibold text-foreground">Your portfolio is empty</h3>
-      <p className="max-w-sm text-sm text-muted-foreground">
-        Add your first file or link above to start building it.
-      </p>
-    </div>
-  );
-}
-
-function PortfolioErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
-  return (
-    <div
-      className="flex flex-col items-center gap-3 border bg-card p-10 text-center shadow-sm sm:p-12"
-      style={{ borderRadius: 16, borderColor: "var(--border)" }}
-    >
-      <span
-        aria-hidden
-        className="flex size-12 items-center justify-center rounded-full"
-        style={{ backgroundColor: "#FBE9E7", color: "#B3261E" }}
-      >
-        <AlertOctagon className="size-5" />
-      </span>
-      <h3 className="font-heading text-lg font-semibold text-foreground">
-        Couldn&apos;t load your portfolio
-      </h3>
-      <p className="max-w-sm text-sm text-muted-foreground">
-        We couldn&apos;t reach the backend just now. Check your connection or the API status, then try again.
-      </p>
-      <p className="max-w-sm text-xs font-mono text-muted-foreground/80">{message}</p>
-      <Button type="button" variant="outline" size="sm" onClick={onRetry}>
-        Retry
-      </Button>
-    </div>
-  );
-}
-
-/** Shared 1px vertical connector behind the timeline dots. Used by both the
- * populated <TimelineList> and the loading <PortfolioListSkeleton> so the
- * page never reflows when data lands. Hidden below `sm:` because the rail
- * is too narrow to be useful at phone widths — the mobile layout switches
- * to inline dots instead. */
-function TimelineSpine() {
-  return (
-    <span
-      aria-hidden
-      className="pointer-events-none absolute hidden sm:block"
-      style={{
-        left: 13, // (28px rail - 2px) — centers a 1px spine on the 20px dot
-        top: 24,
-        bottom: 24,
-        width: 1,
-        backgroundColor: "var(--border)",
-      }}
-    />
-  );
-}
-
-function PortfolioListSkeleton() {
-  return (
-    <ol aria-label="Loading portfolio" className="relative flex flex-col">
-      <TimelineSpine />
-      {Array.from({ length: 2 }).map((_, idx) => (
-        <li key={idx} className="relative flex items-start gap-4 pb-1" aria-hidden>
-          <span
-            aria-hidden
-            className="hidden sm:block shrink-0 pt-5"
-            style={{ width: 28, justifyContent: "center" }}
-          >
-            <span
-              className="block size-5 animate-pulse rounded-full bg-muted ring-4 ring-background"
-              style={{ marginTop: 2 }}
-            />
-          </span>
-          <div
-            className="min-w-0 flex-1 border bg-card p-4 shadow-sm sm:p-5"
-            style={{ borderRadius: 16, borderColor: "var(--border)" }}
-          >
-            <div className="flex items-start gap-4">
-              <span aria-hidden className="sm:hidden mt-0.5 size-6 shrink-0 animate-pulse rounded-full bg-muted" />
-              <span aria-hidden className="size-10 shrink-0 animate-pulse rounded-lg bg-muted" />
-              <div className="min-w-0 flex-1 space-y-2">
-                <span className="block h-3 w-1/3 animate-pulse rounded bg-muted" />
-                <span className="block h-3 w-1/2 animate-pulse rounded bg-muted" />
-                <span className="block h-3 w-1/4 animate-pulse rounded bg-muted" />
-              </div>
-              <span aria-hidden className="mt-0.5 size-9 shrink-0 animate-pulse rounded-md bg-muted" />
-            </div>
-          </div>
-        </li>
-      ))}
-    </ol>
   );
 }

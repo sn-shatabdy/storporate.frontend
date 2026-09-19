@@ -128,21 +128,22 @@ describe("PortfolioPage — populated timeline", () => {
 
     render(<PortfolioPage />);
 
-    // Skill names render in the skill strip (the same string may also
-    // appear elsewhere — we just need them to be present, which findBy*
-    // confirms).
+    // Skill names render in the skill strip — only the name shows as text;
+    // the band's confident classification is conveyed by pill color + the
+    // pill's aria-label (so assistive tech / a future admin filter can
+    // still distinguish Strong vs Developing without re-walking hex pairs).
     expect(
       await screen.findByText("Technical writing"),
     ).toBeInTheDocument();
     expect(screen.getByText("Data visualization")).toBeInTheDocument();
 
-    // Band labels — the condensed preview shows "Skill · Band" inside a
-    // single Badge per skill. `screen.getByText` on the band label finds
-    // both the badge's band label AND the standalone status badge text.
-    // Multiple matches are fine — what we need to prove is that the band
-    // labels appear, not that they appear exactly once.
-    expect(screen.getAllByText("Strong").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Developing").length).toBeGreaterThan(0);
+    // Each skill pill's aria-label carries "{name} — {bandLabel}".
+    expect(
+      await screen.findByLabelText("Technical writing — Strong"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Data visualization — Developing"),
+    ).toBeInTheDocument();
   });
 
   it("shows no skill badges for a not-analyzed item — only its status badge", async () => {
@@ -280,10 +281,10 @@ describe("PortfolioPage — empty state", () => {
     render(<PortfolioPage />);
 
     expect(
-      await screen.findByRole("heading", { name: /your portfolio is empty/i }),
+      await screen.findByRole("heading", { name: /your timeline starts here/i }),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/add your first file or link above/i),
+      screen.getByText(/add your first file or link above — every item you submit shows up here/i),
     ).toBeInTheDocument();
   });
 
@@ -293,7 +294,7 @@ describe("PortfolioPage — empty state", () => {
     render(<PortfolioPage />);
 
     // Wait for the empty state to appear first.
-    await screen.findByRole("heading", { name: /your portfolio is empty/i });
+    await screen.findByRole("heading", { name: /your timeline starts here/i });
     expect(
       screen.queryByRole("list", { name: /portfolio timeline/i }),
     ).not.toBeInTheDocument();
@@ -411,5 +412,277 @@ describe("PortfolioPage — submission form is untouched", () => {
     expect(
       screen.getByRole("button", { name: /add to portfolio/i }),
     ).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3 design-spec coverage — pinned by the approved design canvas. Each
+// spec section gets at least one regression test here so a future drift
+// from the canvas (e.g. re-introducing a half-dot or a duplicated delete
+// button for mobile/desktop) fails the suite.
+// ---------------------------------------------------------------------------
+
+describe("PortfolioPage — design-spec regressions", () => {
+  it("renders exactly one timeline dot per row (first and last included)", async () => {
+    const a = makeItem({ id: "a", label: "A", createdAt: "2026-09-15T00:00:00Z" });
+    const b = makeItem({ id: "b", label: "B", createdAt: "2026-09-10T00:00:00Z" });
+    const c = makeItem({ id: "c", label: "C", createdAt: "2026-09-05T00:00:00Z" });
+    setupMocks([a, b, c]);
+
+    render(<PortfolioPage />);
+
+    const timeline = await screen.findByRole("list", { name: /portfolio timeline/i });
+    // Three rows. The dot signature: rounded-full + the box-shadow ring
+    // utility. We check via the unique Tailwind escape class string the
+    // dot uses (`shadow-[0_0_0_3px_var(--background)]`) — only the dot has
+    // this; pill icons use rounded-full but their shadows don't include the
+    // 3px ring, so the class-string match is unambiguous per-row.
+    const rows = Array.from(timeline.querySelectorAll(":scope > li"));
+    expect(rows.length).toBe(3);
+    rows.forEach((row, idx) => {
+      const dots = row.querySelectorAll(".shadow-\\[0_0_0_3px_var\\(--background\\)\\]");
+      expect(
+        dots.length,
+        `row #${idx} should have exactly one timeline dot`,
+      ).toBe(1);
+    });
+  });
+
+  it("renders the populated header summary as 'N items · M skills identified' (with singular forms)", async () => {
+    const item = makeItem({
+      id: "one-item-many-skills",
+      label: "Many Skills",
+      analysisStatus: "Analyzed",
+      skills: [
+        { skillName: "Skill A", confidenceBand: "Strong" },
+        { skillName: "Skill B", confidenceBand: "Developing" },
+        { skillName: "Skill C", confidenceBand: "Missing" },
+        { skillName: "Skill D", confidenceBand: "Strong" },
+        { skillName: "Skill E", confidenceBand: "Strong" },
+      ],
+    });
+    setupMocks([item]);
+
+    render(<PortfolioPage />);
+    await screen.findByText("Many Skills");
+
+    expect(screen.getByText("1 item · 5 skills identified")).toBeInTheDocument();
+  });
+
+  it("uses singular forms: '1 item' and '1 skill identified'", async () => {
+    const item = makeItem({
+      id: "one-skill",
+      label: "One Skill",
+      analysisStatus: "Analyzed",
+      skills: [{ skillName: "Only Skill", confidenceBand: "Strong" }],
+    });
+    setupMocks([item]);
+
+    render(<PortfolioPage />);
+    await screen.findByText("One Skill");
+
+    expect(screen.getByText("1 item · 1 skill identified")).toBeInTheDocument();
+  });
+
+  it("omits the skills clause when no item has any skill", async () => {
+    const item = makeItem({
+      id: "no-skills",
+      label: "No Skills",
+      analysisStatus: "NotAnalyzed",
+      lastAnalyzedAt: null,
+      skills: [],
+    });
+    setupMocks([item]);
+
+    render(<PortfolioPage />);
+    await screen.findByText("No Skills");
+
+    // 1 item, 0 skills — only the item count, no skills clause.
+    expect(screen.getByText("1 item")).toBeInTheDocument();
+    expect(screen.queryByText(/skill identified/)).not.toBeInTheDocument();
+  });
+
+  it("uses plural 'items' for N>1", async () => {
+    const a = makeItem({ id: "a", label: "A" });
+    const b = makeItem({ id: "b", label: "B" });
+    setupMocks([a, b]);
+
+    render(<PortfolioPage />);
+    await screen.findByText("A");
+
+    expect(screen.getByText(/^2 items$/)).toBeInTheDocument();
+  });
+
+  it("clamps the error message in the error state so a huge server stack trace can't blow up the card", async () => {
+    const hugeMessage = "x".repeat(2000) + " TRACETAIL";
+    vi.mocked(useSession).mockReturnValue({
+      data: { accessToken: ACCESS_TOKEN } as never,
+      status: "authenticated",
+    } as never);
+    vi.mocked(listPortfolioItems).mockRejectedValue(new Error(hugeMessage));
+
+    render(<PortfolioPage />);
+
+    const details = await screen.findByLabelText("Error details");
+    // The clamp is expressed via Tailwind v4 arbitrary-property classes
+    // (`[-webkit-line-clamp:3]`, `[display:-webkit-box]`,
+    // `[-webkit-box-orient:vertical]`, `[overflow:hidden]`). Assert the
+    // class string so a future regression that drops one of the four
+    // required declarations trips this test. The Tailwind utility form
+    // ("line-clamp-3") is not available in the project's Tailwind v4
+    // build, which is why this card uses arbitrary properties — same
+    // shape the submission banner uses for the delete-failure path.
+    expect(details.className).toContain("[-webkit-line-clamp:3]");
+    expect(details.className).toContain("[display:-webkit-box]");
+    expect(details.className).toContain("[-webkit-box-orient:vertical]");
+    expect(details.className).toContain("[overflow:hidden]");
+    expect(details.textContent).toContain("TRACETAIL");
+  });
+
+  it("renders exactly one delete button per row (no duplicated hidden copies)", async () => {
+    const a = makeItem({ id: "del-a", label: "Delete A" });
+    const b = makeItem({ id: "del-b", label: "Delete B" });
+    setupMocks([a, b]);
+
+    render(<PortfolioPage />);
+    await screen.findByText("Delete A");
+
+    // Exactly one button per row, found by accessible name. Spec §4
+    // explicitly forbids duplicating the button across the desktop and
+    // mobile layouts — both visual positions must be served by the SAME
+    // DOM node (relocated via grid-area).
+    expect(
+      screen.getByRole("button", { name: /delete delete a/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /delete delete b/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryAllByRole("button", { name: /delete delete a/i }),
+    ).toHaveLength(1);
+    expect(
+      screen.queryAllByRole("button", { name: /delete delete b/i }),
+    ).toHaveLength(1);
+  });
+
+  it("a not-analyzed item shows only its status pill — no divider, no skill pills", async () => {
+    const item = makeItem({
+      id: "not-analyzed-pills-only",
+      label: "Not Analyzed Pills",
+      analysisStatus: "NotAnalyzed",
+      lastAnalyzedAt: null,
+      skills: [],
+    });
+    setupMocks([item]);
+
+    render(<PortfolioPage />);
+    await screen.findByText("Not Analyzed Pills");
+
+    // Status pill renders. The vertical 1px divider that separates the
+    // status pill from skill pills must NOT render (it only mounts when
+    // `showSkills` is true). Likewise no skill-name pills render.
+    expect(screen.getByText("Not analyzed")).toBeInTheDocument();
+    // The divider is a 14px-tall <span> with role-less; assert via the
+    // single shared ancestor: query for the role-less divider width-px span.
+    const allRows = screen.getAllByRole("listitem");
+    expect(allRows.length).toBeGreaterThan(0);
+    const firstRow = allRows[0]!;
+    // 1px-wide spans (vertical divider) — none should be present in the
+    // not-analyzed row.
+    expect(
+      firstRow.querySelector(".h-3\\.5.w-px"),
+    ).toBeNull();
+  });
+
+  it("4 skills → 3 skill pills + '+1 more' overflow indicator", async () => {
+    const item = makeItem({
+      id: "four-skills",
+      label: "Four Skills",
+      analysisStatus: "Analyzed",
+      skills: [
+        { skillName: "Skill A", confidenceBand: "Strong" },
+        { skillName: "Skill B", confidenceBand: "Developing" },
+        { skillName: "Skill C", confidenceBand: "Missing" },
+        { skillName: "Skill D", confidenceBand: "Strong" },
+      ],
+    });
+    setupMocks([item]);
+
+    render(<PortfolioPage />);
+    await screen.findByText("Skill A");
+
+    expect(screen.getByText("Skill A")).toBeInTheDocument();
+    expect(screen.getByText("Skill B")).toBeInTheDocument();
+    expect(screen.getByText("Skill C")).toBeInTheDocument();
+    expect(screen.getByText("+1 more")).toBeInTheDocument();
+    expect(screen.queryByText("Skill D")).not.toBeInTheDocument();
+  });
+
+  it("does not inject a <style> element into the document (CSP-friendly)", async () => {
+    // B2 of the STOR-39 cross-validation pass: the page used to render a
+    // <style dangerouslySetInnerHTML> block to provide grid-area CSS for
+    // the timeline card. That element is bypassed by the app's CSP unless
+    // a nonce is plumbed through, so the page now does it with Tailwind v4
+    // arbitrary properties on the card and its children. Guard against
+    // regression: no <style> tag of any kind may appear in the rendered tree.
+    const item = makeItem({ id: "no-style", label: "No Style" });
+    setupMocks([item]);
+
+    render(<PortfolioPage />);
+    await screen.findByText("No Style");
+
+    // The page should not mount any <style> element — neither via
+    // dangerouslySetInnerHTML nor via a CSS-in-JS runtime. CSS-in-JS
+    // libraries (e.g. styled-components) also typically inject <style>
+    // tags at runtime, so a stricter version of this assertion would
+    // forbid those too; the current page uses neither.
+    const styleElements = document.querySelectorAll("style");
+    expect(
+      styleElements.length,
+      "page must not inject <style> elements — CSP would block them",
+    ).toBe(0);
+  });
+
+  it("clamps the delete-failure message in the submission banner so an unbounded server error can't blow up the card", async () => {
+    // B3 of the STOR-39 cross-validation pass: the submission banner's
+    // error text (which is the same channel a failed DELETE flows through
+    // via handleDelete's setSubmitError(messageForError(error)) call) must
+    // clamp long error strings so a server stack-trace dump can't blow
+    // up the layout. Mirrors the existing list-error-state clamp test:
+    // assert the inline style applies WebkitLineClamp: 3 and overflow:hidden.
+    const hugeMessage = "x".repeat(2000) + " TRACETAIL";
+    const item = makeItem({ id: "fail-delete", label: "Fail Delete" });
+    setupMocks([item]);
+    vi.mocked(deletePortfolioItem).mockRejectedValueOnce(new Error(hugeMessage));
+
+    render(<PortfolioPage />);
+    const deleteButton = await screen.findByRole("button", {
+      name: /delete fail delete/i,
+    });
+    fireEvent.click(deleteButton);
+
+    // Wait for the banner to surface the (huge) delete-failure message.
+    const banner = await screen.findByLabelText("Submission error");
+    expect(banner).toBeInTheDocument();
+
+    // The banner's clamped content includes the trace tail — the clamp
+    // truncates visually but the full text stays in the DOM for screen
+    // readers / copy-paste.
+    expect(banner.textContent).toContain("TRACETAIL");
+
+    // The clamp classes must be present on the banner element itself.
+    // Same arbitrary-property shape used by PortfolioErrorState — assert
+    // the four required declarations + the break-words utility so any
+    // future regression that drops one of them trips this test.
+    expect(banner.className).toContain("[-webkit-line-clamp:3]");
+    expect(banner.className).toContain("[display:-webkit-box]");
+    expect(banner.className).toContain("[-webkit-box-orient:vertical]");
+    expect(banner.className).toContain("[overflow:hidden]");
+    expect(banner.className).toContain("break-words");
+
+    // The full error text stays in the DOM (screen readers / copy-paste)
+    // even though visually only the first 3 lines render. jsdom can't
+    // measure the rendered clamp reliably (it ignores `-webkit-line-clamp`),
+    // so the class-level assertions above are the contract.
   });
 });
