@@ -490,11 +490,11 @@ interface TimelineSectionProps {
 }
 
 function TimelineSection({ listState, deletingId, onDelete, onRetry }: TimelineSectionProps) {
-  // Header summary line is shown only in the populated state.
+  // Summary only appears in the populated state (approved design).
   const summary =
-    listState.status === "success"
+    listState.status === "success" && listState.items.length > 0
       ? summaryLine(
-          listState.totalCount,
+          listState.items.length,
           listState.items.reduce((sum, item) => sum + item.skills.length, 0),
         )
       : null;
@@ -744,7 +744,7 @@ interface StatusPillProps {
 
 function StatusPill({ background, color, label, icon }: StatusPillProps) {
   return (
-    <Badge background={background} color={color} aria-label={label} className="px-[9px] text-[10.5px] sm:px-2.5 sm:text-[11px]">
+    <Badge background={background} color={color} className="px-[9px] text-[10.5px] sm:px-2.5 sm:text-[11px]">
       <span aria-hidden>{icon}</span>
       <span>{label}</span>
     </Badge>

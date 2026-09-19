@@ -417,7 +417,6 @@ export default function PortfolioItemDetailPage() {
             background={statusStyle.background}
             color={statusStyle.color}
             className="flex-shrink-0"
-            aria-label={statusStyle.label}
           >
             <StatusIcon className={cn("size-3", isAnalyzing && "animate-spin")} />
             {statusStyle.label}

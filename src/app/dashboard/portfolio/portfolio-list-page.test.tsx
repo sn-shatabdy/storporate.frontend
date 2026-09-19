@@ -194,6 +194,31 @@ describe("PortfolioPage — populated timeline", () => {
     expectNoBandLabels();
   });
 
+  it("does NOT render skill badges when the item is Analyzing (skills gate requires Analyzed)", async () => {
+    // Pin the contract that the skill-strip gate is `analysisStatus === "Analyzed"`
+    // even if a non-empty skills array somehow arrives for a non-Analyzed status
+    // (e.g. an in-flight analysis that has produced findings but not yet flipped
+    // the item's status). Belt-and-braces: the timeline must only show skills
+    // for items the model has finalized.
+    const item = makeItem({
+      id: "analyzing-with-stale-skills",
+      label: "Analyzing With Stale Skills",
+      analysisStatus: "Analyzing",
+      skills: [
+        { skillName: "Should Not Render", confidenceBand: "Strong" },
+      ],
+    });
+    setupMocks([item]);
+
+    render(<PortfolioPage />);
+
+    expect(
+      await screen.findByText("Analyzing With Stale Skills"),
+    ).toBeInTheDocument();
+
+    expectNoBandLabels();
+  });
+
   it("caps the visible skill badges and shows a +N more overflow indicator", async () => {
     const item = makeItem({
       id: "many-skills",
@@ -299,6 +324,27 @@ describe("PortfolioPage — empty state", () => {
       screen.queryByRole("list", { name: /portfolio timeline/i }),
     ).not.toBeInTheDocument();
   });
+
+  it("does NOT render the '0 items' summary in the empty state", async () => {
+    // Approved design rule: the right-hand summary in the section header
+    // appears only in the populated state. The empty state must not say
+    // "0 items" — the heading + subtitle are sufficient on their own.
+    setupMocks([]);
+
+    render(<PortfolioPage />);
+    await screen.findByRole("heading", { name: /your timeline starts here/i });
+
+    // Match the exact shape summaryLine() produces: "{n} item(s)" with
+    // optional " · {m} skill(s) identified". The empty-state copy uses
+    // the word "item" in prose ("every item you submit"), so a generic
+    // /\bitem\b/ would also match that copy and produce a false
+    // positive. Anchor on the leading numeric count instead.
+    expect(screen.queryByText(/^\d+\s+items?(\b|·)/)).not.toBeInTheDocument();
+    // The header heading still renders.
+    expect(
+      screen.getByRole("heading", { name: /^your portfolio$/i }),
+    ).toBeInTheDocument();
+  });
 });
 
 describe("PortfolioPage — error state with retry", () => {
@@ -320,6 +366,31 @@ describe("PortfolioPage — error state with retry", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /retry/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("does NOT render the '0 items' summary in the error state", async () => {
+    // Mirror of the empty-state test: the right-hand summary belongs to
+    // the populated header only, never to the loading/error/empty
+    // headers. The heading and subtitle still render so the section is
+    // discoverable, just without the count.
+    vi.mocked(useSession).mockReturnValue({
+      data: { accessToken: ACCESS_TOKEN } as never,
+      status: "authenticated",
+    } as never);
+    vi.mocked(listPortfolioItems).mockRejectedValue(new Error("network down"));
+
+    render(<PortfolioPage />);
+    await screen.findByRole("heading", {
+      name: /couldn.?t load your portfolio/i,
+    });
+
+    // Anchor on the leading numeric count so prose mentioning "item"
+    // doesn't trip the matcher.
+    expect(screen.queryByText(/^\d+\s+items?(\b|·)/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/skill identified/)).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /^your portfolio$/i }),
     ).toBeInTheDocument();
   });
 
