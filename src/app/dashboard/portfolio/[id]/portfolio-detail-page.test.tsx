@@ -37,42 +37,20 @@ import {
   type PortfolioItemAnalysis,
 } from "@/lib/api/portfolio";
 
+import {
+  makePortfolioItem,
+  makePortfolioItemAnalysis,
+} from "../test-helpers";
+
 import PortfolioItemDetailPage from "./page";
 
 const ITEM_ID = "item-001";
 const ACCESS_TOKEN = "test-access-token";
 
-/** Builds a PortfolioItem fixture whose analysis-related fields default to
- * the caller-provided analysis. Keeps each test shorter than re-declaring
- * the full shape. */
-function makeItem(overrides: Partial<PortfolioItem> = {}): PortfolioItem {
-  return {
-    id: ITEM_ID,
-    label: "Capstone Project Writeup",
-    category: "Document",
-    customCategoryText: null,
-    submissionType: "File",
-    originalFileName: "capstone.pdf",
-    contentType: "application/pdf",
-    fileSizeBytes: 1024 * 250,
-    externalUrl: null,
-    description: null,
-    createdAt: "2026-09-10T00:00:00Z",
-    analysisStatus: "Analyzed",
-    lastAnalyzedAt: "2026-09-10T00:05:00Z",
-    ...overrides,
-  };
-}
-
-function makeAnalysis(overrides: Partial<PortfolioItemAnalysis> = {}): PortfolioItemAnalysis {
-  return {
-    status: "Analyzed",
-    lastAnalyzedAt: "2026-09-10T00:05:00Z",
-    errorMessage: null,
-    skills: [],
-    ...overrides,
-  };
-}
+// Local thin aliases so the existing test bodies don't need to be touched.
+// `makeItem` was the file's original name; `makeAnalysis` similarly.
+const makeItem = makePortfolioItem;
+const makeAnalysis = makePortfolioItemAnalysis;
 
 /** All session + params + list-fetch mocks wired up to a successful fetch
  * with the supplied item + analysis. The two fetch mocks return promises
