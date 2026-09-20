@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 interface ConfirmDialogProps {
@@ -10,6 +10,17 @@ interface ConfirmDialogProps {
   confirmLabel: string;
   cancelLabel?: string;
   confirmLoading?: boolean;
+  /** Optional `loadingLabel` shown in place of `confirmLabel` while
+   * `confirmLoading` is true. Default "Logging out…" preserves the
+   * original logout-flow behavior; the advisor surface passes its own
+   * text (e.g. "Deleting…") so the button still reads correctly when the
+   * action isn't signing out. */
+  loadingLabel?: string;
+  /** Optional leading icon for the destructive confirm button. Rendered
+   * before the label with the same size treatment the Button component
+   * uses, so a trash icon alongside "Delete" reads as a single action.
+   * Accepts any node (Lucide icons, etc.). */
+  confirmIcon?: ReactNode;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -21,6 +32,11 @@ interface ConfirmDialogProps {
  * `button.tsx`/`card.tsx` exist under `components/ui`). Traps focus loosely
  * (focuses the cancel button on open) and closes on Escape or backdrop click,
  * matching the plan's "gated behind a confirmation dialog" requirement.
+ *
+ * STOR-40 Phase 5 added the optional `confirmIcon` and `loadingLabel`
+ * props so the advisor's "Delete this exploration?" dialog can render
+ * with a trash icon and a "Deleting…" loading label, instead of the
+ * default logout-specific copy + no-icon shape.
  */
 export function ConfirmDialog({
   open,
@@ -29,6 +45,8 @@ export function ConfirmDialog({
   confirmLabel,
   cancelLabel = "Cancel",
   confirmLoading,
+  loadingLabel = "Logging out…",
+  confirmIcon,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -81,9 +99,16 @@ export function ConfirmDialog({
             type="button"
             onClick={onConfirm}
             disabled={confirmLoading}
-            className="rounded-lg bg-[#B3261E] px-4 py-2 text-sm font-semibold text-white outline-none transition-opacity focus-visible:ring-4 focus-visible:ring-[#B3261E]/30 disabled:opacity-60"
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#B3261E] px-4 py-2 text-sm font-semibold text-white outline-none transition-opacity focus-visible:ring-4 focus-visible:ring-[#B3261E]/30 disabled:opacity-60"
           >
-            {confirmLoading ? "Logging out…" : confirmLabel}
+            {confirmLoading ? (
+              loadingLabel
+            ) : (
+              <>
+                {confirmIcon}
+                {confirmLabel}
+              </>
+            )}
           </button>
         </div>
       </div>
