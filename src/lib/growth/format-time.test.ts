@@ -78,13 +78,30 @@ describe("formatStarted", () => {
 });
 
 describe("formatSummaryTime", () => {
-  it("returns the full date including the year regardless of recency", () => {
-    // Unlike formatUpdated, this always includes the year — the design
-    // keeps the year on the summary card so the provenance stays clear.
-    expect(formatSummaryTime("2026-09-12T00:00:00Z")).toBe("12 Sep 2026");
+  it("formats the date as en-GB day + short month with the 24-hour time", () => {
+    // The approved design canvas pins "20 Sep, 09:14"; we exercise the
+    // exact same wire input. Locale and timezone are pinned by the
+    // `toLocaleTimeString("en-GB", ...)` call so the assertion holds
+    // regardless of the host's default locale.
+    expect(formatSummaryTime("2026-09-20T09:14:00Z", NOW)).toBe("20 Sep, 09:14");
+  });
+
+  it("renders the time as HH:mm even when minutes or hours are zero", () => {
+    expect(formatSummaryTime("2026-09-20T00:00:00Z", NOW)).toBe("20 Sep, 00:00");
+    expect(formatSummaryTime("2026-09-20T09:05:00Z", NOW)).toBe("20 Sep, 09:05");
+  });
+
+  it("includes the year when the date is in a different calendar year", () => {
+    expect(formatSummaryTime("2025-09-20T09:14:00Z", NOW)).toBe("20 Sep 2025, 09:14");
+  });
+
+  it("renders the time in UTC regardless of the host timezone", () => {
+    // The wire ISO is UTC; the formatter pins `timeZone: "UTC"` so a CI
+    // host in any zone produces the same canonical string.
+    expect(formatSummaryTime("2026-09-20T23:59:00Z", NOW)).toBe("20 Sep, 23:59");
   });
 
   it("falls back to the raw ISO when the input is unparseable", () => {
-    expect(formatSummaryTime("nope")).toBe("nope");
+    expect(formatSummaryTime("nope", NOW)).toBe("nope");
   });
 });

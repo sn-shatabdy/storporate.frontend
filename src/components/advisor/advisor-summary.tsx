@@ -41,8 +41,9 @@ interface SummaryPanelProps {
 
 export function SummaryPanel({ detail, isWorking }: SummaryPanelProps) {
   const summary = detail.latestSummary;
-  const showUpdating = isWorking && summary !== null;
-  const showEmpty = summary === null;
+  const hasSummary = summary != null;
+  const showUpdating = isWorking && hasSummary;
+  const showEmpty = !hasSummary;
 
   return (
     <aside
@@ -147,6 +148,7 @@ function SuggestionRow({
   suggestion: ExplorationSuggestion;
   index: number;
 }) {
+  const safeSourceUrl = isSafeExternalUrl(suggestion.source?.url);
   return (
     <div className="flex flex-col gap-2.5 rounded-[14px] border border-[#e7dfc0] bg-white p-3.5">
       <div className="flex items-start gap-2.5">
@@ -174,9 +176,9 @@ function SuggestionRow({
           {suggestion.nextStep}
         </p>
       </div>
-      {suggestion.source && (
+      {suggestion.source && safeSourceUrl && (
         <a
-          href={suggestion.source.url}
+          href={safeSourceUrl}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex items-center gap-1 text-[12px] font-semibold hover:underline"
@@ -185,6 +187,14 @@ function SuggestionRow({
           {suggestion.source.sourceName}: {suggestion.source.title}
           <ArrowUpRight className="size-3" aria-hidden />
         </a>
+      )}
+      {suggestion.source && !safeSourceUrl && (
+        <span
+          className="inline-flex items-center gap-1 text-[12px] font-semibold"
+          style={{ color: "#345a73" }}
+        >
+          {suggestion.source.sourceName}: {suggestion.source.title}
+        </span>
       )}
     </div>
   );
@@ -223,5 +233,24 @@ function EmptySummary() {
 }
 
 // Re-export for tests that want to render pieces in isolation.
-export { ChangeNoteBanner, EmptySummary, GapRow, SuggestionRow };
+export { ChangeNoteBanner, EmptySummary, GapRow, SuggestionRow, isSafeExternalUrl };
 export type { SummaryPanelProps, ExplorationSummary };
+
+/** Defense-in-depth: the backend's `ResolveSuggestionSnapshots` already
+ * filters suggestion sources down to rows that exist in `FeedItem`
+ * (so the URL is server-trusted), but the suggestion row never renders
+ * an `<a>` for a URL we can't confirm is `http`/`https`. Anything else
+ * (`javascript:`, `data:`, plain strings) is rendered as a label only
+ * so a future bug on the backend can't become a script-injection vector
+ * in the browser. */
+function isSafeExternalUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const trimmed = url.trim();
+  if (
+    trimmed.startsWith("http://") ||
+    trimmed.startsWith("https://")
+  ) {
+    return trimmed;
+  }
+  return null;
+}

@@ -38,6 +38,11 @@ interface AdvisorRailProps {
   /** Called with the friendly error message so the page can render an
    *  inline alert under the rail's buttons. */
   onCompareError?: (message: string) => void;
+  /** Last compare-error the page owns — surfaced inline at the top of
+   *  the rail while `compareMode` is on, so users see why a compare
+   *  submission failed without leaving the picker. Cleared automatically
+   *  by the page on a fresh attempt. */
+  compareErrorMessage?: string | null;
   /** Whether a comparison is currently being created — used to disable
    *  the "Compare 2 selected" CTA while the request is in flight. */
   compareSubmitting?: boolean;
@@ -70,6 +75,7 @@ export function AdvisorRail({
   accessToken,
   onCompareRequest,
   onCompareError,
+  compareErrorMessage = null,
   compareSubmitting = false,
   creating = false,
   atLimit,
@@ -195,6 +201,15 @@ export function AdvisorRail({
           <p className="text-xs text-muted-foreground">
             You have {MAX_EXPLORATIONS_PER_STUDENT} explorations. Delete one to
             start another.
+          </p>
+        )}
+        {compareMode && compareErrorMessage && (
+          <p
+            role="alert"
+            className="text-[13px]"
+            style={{ color: "#b3261e" }}
+          >
+            {compareErrorMessage}
           </p>
         )}
       </div>

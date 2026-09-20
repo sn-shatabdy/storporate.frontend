@@ -74,15 +74,32 @@ export function formatStarted(iso: string, now: Date = new Date()): string {
 }
 
 /**
- * "14 Sep 2026" — the summary version's created-at label, always with
- * the year (the design keeps the year on this line so the "what changed"
- * provenance stays unambiguous across long-running explorations).
+ * "20 Sep, 09:14" — the summary version's created-at label, rendered as
+ * the date (en-GB short form: day + abbreviated month, year added only
+ * when it differs from the current year) followed by ", " and the
+ * 24-hour "HH:mm" time. Pinned to en-GB and UTC so a CI host in en-US or
+ * any non-UTC zone still produces the canonical "20 Sep, 09:14" the
+ * design canvas shows — the wire timestamp is UTC and the UI label
+ * matches the canvas verbatim.
  */
-export function formatSummaryTime(iso: string): string {
+export function formatSummaryTime(
+  iso: string,
+  now: Date = new Date(),
+): string {
   const then = new Date(iso);
   if (Number.isNaN(then.getTime())) return iso;
-  const month = SHORT_MONTHS[then.getMonth()];
-  return `${then.getDate()} ${month} ${then.getFullYear()}`;
+  // Compare years in UTC so a same-year check stays correct regardless
+  // of the host's local timezone (the input ISO is always UTC).
+  const sameYear = then.getUTCFullYear() === now.getUTCFullYear();
+  const date = sameYear
+    ? `${then.getUTCDate()} ${SHORT_MONTHS[then.getUTCMonth()]}`
+    : `${then.getUTCDate()} ${SHORT_MONTHS[then.getUTCMonth()]} ${then.getUTCFullYear()}`;
+  const time = then.toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "UTC",
+  });
+  return `${date}, ${time}`;
 }
 
 /** Shared "12 Sep" / "12 Sep 2025" formatter used by both `formatUpdated`

@@ -287,7 +287,7 @@ function DetailHeader({
       <ConfirmDialog
         open={deleteOpen}
         title="Delete this exploration?"
-        description="This removes the conversation and summary. You can't undo this."
+        description="Its messages and summaries are removed. You cannot undo this."
         confirmLabel="Delete"
         loadingLabel="Deleting…"
         confirmIcon={<Trash2 className="size-4" />}

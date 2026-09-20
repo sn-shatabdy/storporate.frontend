@@ -8,7 +8,7 @@ import type {
   ExplorationSummary,
 } from "@/lib/api/growth";
 
-import { Section, SummaryPanel } from "./advisor-summary";
+import { Section, SummaryPanel, isSafeExternalUrl } from "./advisor-summary";
 
 /**
  * Tests for the extracted SummaryPanel + Section. Verifies:
@@ -312,5 +312,39 @@ describe("Section — heading row + items container", () => {
     expect(within(section).getByText("Card 1")).toBeInTheDocument();
     expect(within(section).getByText("Card 2")).toBeInTheDocument();
     expect(within(section).getByText("Card 3")).toBeInTheDocument();
+  });
+});
+
+describe("isSafeExternalUrl — defense-in-depth protocol guard", () => {
+  it("returns the URL for plain http and https", () => {
+    expect(isSafeExternalUrl("https://example.com/x")).toBe(
+      "https://example.com/x",
+    );
+    expect(isSafeExternalUrl("http://example.com/x")).toBe(
+      "http://example.com/x",
+    );
+  });
+
+  it("trims whitespace around an http(s) URL", () => {
+    expect(isSafeExternalUrl("  https://example.com/x  ")).toBe(
+      "https://example.com/x",
+    );
+  });
+
+  it("returns null for javascript:, data:, and other dangerous schemes", () => {
+    expect(isSafeExternalUrl("javascript:alert(1)")).toBeNull();
+    expect(isSafeExternalUrl("data:text/html,<script>alert(1)</script>")).toBeNull();
+    expect(isSafeExternalUrl("vbscript:msgbox(1)")).toBeNull();
+  });
+
+  it("returns null for empty/null/undefined", () => {
+    expect(isSafeExternalUrl("")).toBeNull();
+    expect(isSafeExternalUrl(null)).toBeNull();
+    expect(isSafeExternalUrl(undefined)).toBeNull();
+  });
+
+  it("returns null for plain strings that don't have any scheme", () => {
+    expect(isSafeExternalUrl("example.com/x")).toBeNull();
+    expect(isSafeExternalUrl("/relative/path")).toBeNull();
   });
 });

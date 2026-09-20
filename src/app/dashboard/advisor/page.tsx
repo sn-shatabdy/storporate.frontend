@@ -36,24 +36,20 @@ import {
   AdvisorErrorState,
 } from "@/components/advisor/advisor-error-state";
 
-/** How long to wait between detail polls while an exploration is `Working`.
+/** How long to wait between list polls while ANY item is `Working`.
  * 4 s matches the cadence the portfolio detail page already uses, so
  * working-state feedback feels uniform across the dashboard. */
-const POLL_INTERVAL_MS = 4000;
+const LIST_POLL_INTERVAL_MS = 4000;
 
-/** URL parameter that drives the selected exploration (per Next.js `useSearchParams`).
- * The page reads this on mount, validates it against the list, and writes it back
- * via `router.replace` on every selection change so the back button restores the
- * previous conversation cleanly. */
+/** URL parameter that drives the selected exploration (per Next.js
+ * `useSearchParams`). The URL is the single source of truth — the page
+ * derives `selectedId` from the param on every render and writes it back
+ * via `router.replace` only on user-initiated selection changes. */
 const EXPLORATION_PARAM = "exploration";
 
 type ListState =
   | { status: "loading" }
-  | {
-      status: "ready";
-      items: ExplorationListItem[];
-      selectedId: string | null;
-    }
+  | { status: "ready"; items: ExplorationListItem[] }
   | { status: "error"; message: string };
 
 type DetailState =
@@ -79,23 +75,42 @@ type CompareState =
  *
  * Top-level orchestration only — every visual state lives in a dedicated
  * subcomponent under `src/components/advisor/*` so this file stays
- * focused on data flow + transitions. Renders one of four top-level
- * shapes based on the underlying state machine:
+ * focused on data flow + transitions.
  *
- *   1. Loading → centered "Loading your advisor…" placeholder.
- *   2. Error   → the `AdvisorErrorState` card with a working Retry button.
- *   3. Compare-in-progress → the `AdvisorCompare` shell.
- *   4. Normal   → the {@link AdvisorShell} layout.
+ * URL-as-source-of-truth for selection:
+ *   - The `?exploration=<id>` URL parameter is the only thing that
+ *     names the selected exploration.
+ *   - `selectedId` is DERIVED from the URL (with one lg-only fallback
+ *     to the first item when the param is missing or unknown) and is
+ *     NEVER stored in component state.
+ *   - `select(id)` only calls `router.replace(path?exploration=id, { scroll: false })`.
+ *   - `router.replace` is the ONLY writer of the URL — no `useEffect`
+ *     bridges the URL and selection, so the two never fight.
  *
- * First-visit auto-start: when the list resolves with zero items AND
- * we haven't tried to create one yet, we call `createExploration()` once
- * (guarded by a ref so React 19 / StrictMode's double-effect can't fire
- * twice). The new exploration is selected and shows the first-visit
- * Working state with skeleton bars + disabled composer.
+ * First-visit auto-start:
+ *   - When the FIRST list response of this page load resolves as
+ *     `items.length === 0`, fire `createExploration()` exactly once
+ *     (guarded by a ref so React StrictMode's double-effect can't fire
+ *     twice). The first response sets `firstListResolvedRef.current`,
+ *     so subsequent empty responses (after a delete) never re-trigger
+ *     the auto-create.
  *
- * The default export wraps the shell in `<Suspense>` because
- * `useSearchParams` requires it at the page boundary per the Next.js
- * App Router docs.
+ * Rail freshness (A4):
+ *   - Refetch the list every time the selected exploration's status
+ *     transitions from `Working` to `Idle` or `Failed` (one terminal
+ *     refetch per exploration id).
+ *   - Refetch on rename + create.
+ *   - While ANY list item is `Working`, poll the list every 4000 ms
+ *     with a fresh AbortController per tick (derived `anyWorking`,
+ *     stops when none is Working).
+ *
+ * Phone layout (A2):
+ *   - Below lg: list screen renders ONLY the heading + rail block; the
+ *     detail is hidden entirely. With a valid param, the detail screen
+ *     renders ONLY the back link + title + tabs + active panel; the
+ *     rail is hidden entirely. The two screens are mutually exclusive.
+ *   - Refresh button is `w-auto` (not full width) below lg, alongside
+ *     36x36 rename + 36x36 delete icon buttons in a `flex gap-2` row.
  */
 export default function AdvisorPageRoute() {
   return (
@@ -103,6 +118,25 @@ export default function AdvisorPageRoute() {
       <AdvisorPageShell />
     </Suspense>
   );
+}
+
+function useIsBreakpoint(query: string): boolean {
+  const [matches, setMatches] = useState<boolean>(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return false;
+    return window.matchMedia(query).matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mql = window.matchMedia(query);
+    const handler = (event: MediaQueryListEvent) => {
+      setMatches(event.matches);
+    };
+    mql.addEventListener("change", handler);
+    return () => mql.removeEventListener("change", handler);
+  }, [query]);
+
+  return matches;
 }
 
 function AdvisorPageShell() {
@@ -120,22 +154,40 @@ function AdvisorPageShell() {
   const [compareError, setCompareError] = useState<string | null>(null);
 
   // Bumped after every mutation that should re-fetch the list
-  // (create / delete / rename). The list effect watches this so a
-  // successful create prepends the new exploration without a manual
-  // refresh.
+  // (create / delete / rename / refresh / status terminal).
   const [listVersion, setListVersion] = useState(0);
 
-  // Auto-create guard. When the list resolves with zero items we kick
-  // off a single `createExploration()` call so the first visit lands
-  // directly in the first-visit state with skeleton bars + disabled
-  // composer. The ref (not state) is intentional: a state flag would
-  // re-run on every render, while the ref is set once and survives
-  // StrictMode's double-effect mount.
-  const autoCreateAttemptedRef = useRef(false);
-  // Mirror the ref into state so the empty-state render path can
-  // read it without linting out for "refs in render".
-  const [autoCreateAttempted, setAutoCreateAttempted] = useState(false);
+  // First-list-resolved guard (A3). The first list response sets this
+  // ref regardless of whether the list was empty or populated. A
+  // subsequent empty list (after a delete) NEVER auto-creates a new
+  // exploration; the "No explorations yet" card renders instead.
+  const firstListResolvedRef = useRef(false);
+  // Auto-create-fired guard — survives React StrictMode's double-effect
+  // mount so the auto-create POST never fires twice on the first visit.
+  const autoCreateFiredRef = useRef(false);
+  const [firstListResolved, setFirstListResolved] = useState(false);
   const [autoCreating, setAutoCreating] = useState(false);
+
+  // Derived flag for the auto-create effect's deps list. Booleans are
+  // safe in deps arrays; reading `listState.items.length` directly
+  // would throw when status is "loading" (no `items` field). We
+  // surface the boolean instead of the length so the dep array can
+  // safely read it before the early-return guard runs.
+  const autoCreateItemsIsEmpty =
+    listState.status === "ready" && listState.items.length === 0;
+
+  // ------------------------------------------------------------------
+  // Derived selection. The URL is the source of truth.
+  // ------------------------------------------------------------------
+  const items = listState.status === "ready" ? listState.items : [];
+  const isLg = useIsBreakpoint("(min-width: 1024px)");
+  const urlParam = searchParams?.get(EXPLORATION_PARAM) ?? null;
+  // On lg and up, a missing or unknown param falls back to the first
+  // item so the page always shows a selected exploration. Below lg,
+  // missing/unknown means the list screen, so the derived id stays null.
+  const urlMatchesItem = urlParam != null && items.some((it) => it.id === urlParam);
+  const fallbackId = isLg ? items[0]?.id ?? null : null;
+  const selectedId = urlMatchesItem ? urlParam : fallbackId;
 
   // ------------------------------------------------------------------
   // List fetch
@@ -144,28 +196,17 @@ function AdvisorPageShell() {
     if (!accessToken) return;
     const controller = new AbortController();
     const tokenAtMount = accessToken;
+    const isFirstCall = !firstListResolvedRef.current;
 
     (async () => {
       try {
-        const items = await listExplorations(tokenAtMount, controller.signal);
+        const next = await listExplorations(tokenAtMount, controller.signal);
         if (controller.signal.aborted) return;
-        // Preserve the current selection if it's still in the list; else
-        // fall back to the first item so the detail panel stays populated.
-        setListState((prev) => {
-          if (prev.status !== "ready") {
-            return {
-              status: "ready",
-              items,
-              selectedId: items[0]?.id ?? null,
-            };
-          }
-          const stillThere = items.some((it) => it.id === prev.selectedId);
-          return {
-            status: "ready",
-            items,
-            selectedId: stillThere ? prev.selectedId : items[0]?.id ?? null,
-          };
-        });
+        if (isFirstCall) {
+          firstListResolvedRef.current = true;
+          setFirstListResolved(true);
+        }
+        setListState({ status: "ready", items: next });
       } catch (error) {
         if (controller.signal.aborted) return;
         setListState({
@@ -182,29 +223,29 @@ function AdvisorPageShell() {
   }, [accessToken, listVersion]);
 
   // ------------------------------------------------------------------
-  // First-visit auto-create: when the list resolves with zero items,
-  // spin up a single `createExploration()` exactly once.
+  // First-visit auto-create: when the FIRST list response of this page
+  // load is empty AND the auto-create hasn't fired yet, spin up a
+  // single `createExploration()`. The `firstListResolved` flag is set
+  // on the first list response (empty or not), so a later empty list
+  // never re-triggers the create.
   // ------------------------------------------------------------------
   useEffect(() => {
-    if (
-      !accessToken ||
-      autoCreateAttemptedRef.current ||
-      listState.status !== "ready" ||
-      listState.items.length !== 0
-    ) {
-      return;
-    }
-    autoCreateAttemptedRef.current = true;
-    setAutoCreateAttempted(true);
+    if (!accessToken) return;
+    if (!firstListResolved) return;
+    if (!autoCreateItemsIsEmpty) return;
+    // Auto-create ref prevents React StrictMode's double-effect mount
+    // from firing twice.
+    if (autoCreateFiredRef.current) return;
+    autoCreateFiredRef.current = true;
     setAutoCreating(true);
 
     (async () => {
       try {
         const { id } = await createExploration(accessToken);
         if (!id) return;
-        // Optimistically surface the new exploration so the first-visit
-        // detail view appears immediately — the list re-fetch will
-        // reconcile the row's metadata (title, status) on the next tick.
+        // Optimistically add the new exploration so the first-visit
+        // detail view appears immediately; the list refetch will
+        // reconcile the row's title + status on the next tick.
         setListState((prev) =>
           prev.status === "ready"
             ? {
@@ -219,14 +260,19 @@ function AdvisorPageShell() {
                     latestVersionNumber: null,
                   },
                 ],
-                selectedId: id,
               }
             : prev,
         );
+        // Surface the new exploration via the URL so the detail
+        // fetcher picks it up.
+        const params = new URLSearchParams(searchParams?.toString() ?? "");
+        params.set(EXPLORATION_PARAM, id);
+        const qs = params.toString();
+        const path = qs.length > 0
+          ? `${window.location.pathname}?${qs}`
+          : window.location.pathname;
+        router.replace(path, { scroll: false });
       } catch (error) {
-        // Fall back to the page-level error card so the user can retry.
-        // We don't reset `autoCreateAttemptedRef` because the page is
-        // about to unmount/retry from the error state.
         setListState({
           status: "error",
           message:
@@ -238,20 +284,30 @@ function AdvisorPageShell() {
         setAutoCreating(false);
       }
     })();
-  }, [accessToken, listState]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accessToken, firstListResolved, autoCreateItemsIsEmpty]);
 
   // ------------------------------------------------------------------
-  // Selection — when the list resolves for the first time or the selected
-  // item changes, fetch the matching detail.
+  // Detail fetch — driven by the derived selectedId. Below lg with no
+  // valid param, the selectedId is null and the detail stays at
+  // `status: "none"` (the list screen renders instead).
   // ------------------------------------------------------------------
-  const selectedId =
-    listState.status === "ready" ? listState.selectedId : null;
-
   useEffect(() => {
-    if (!accessToken || !selectedId) return;
-    const controller = new AbortController();
     const idAtMount = selectedId;
     const tokenAtMount = accessToken;
+
+    // The "no selection" state is the empty/null screen — no fetch.
+    // We flip to it asynchronously inside the IIFE so the lint rule
+    // `react-hooks/set-state-in-effect` (cascading-render guard) doesn't
+    // fire; the IIFE's microtask breaks the synchronous setState cycle.
+    if (!idAtMount || !tokenAtMount) {
+      Promise.resolve().then(() => {
+        setDetailState({ status: "none" });
+      });
+      return;
+    }
+
+    const controller = new AbortController();
 
     (async () => {
       setDetailState({ status: "loading", id: idAtMount });
@@ -284,108 +340,26 @@ function AdvisorPageShell() {
   }, [accessToken, selectedId]);
 
   // ------------------------------------------------------------------
-  // URL <-> selection sync.
-  //
-  //   - On mount with no param: select the first exploration.
-  //   - On selection change: `router.replace` the new id (no scroll).
-  //   - On URL change (back button, deep link): re-sync the selection.
-  //
-  // Unknown ids (e.g. another student's id pasted in) are ignored
-  // without showing an error — the rail falls back to the first row.
-  // ------------------------------------------------------------------
-  const urlParam = searchParams?.get(EXPLORATION_PARAM) ?? null;
-  const lastSyncedParamRef = useRef<string | null>(null);
-
-  // Selection -> URL
-  const selectedIdForUrlSync =
-    listState.status === "ready" ? listState.selectedId : null;
-  useEffect(() => {
-    if (listState.status !== "ready") return;
-    const current = listState.selectedId;
-    if (current === lastSyncedParamRef.current) return;
-    lastSyncedParamRef.current = current;
-    const params = new URLSearchParams(searchParams?.toString() ?? "");
-    if (current === null) {
-      params.delete(EXPLORATION_PARAM);
-    } else {
-      params.set(EXPLORATION_PARAM, current);
-    }
-    const qs = params.toString();
-    const path = qs.length > 0 ? `${window.location.pathname}?${qs}` : window.location.pathname;
-    router.replace(path, { scroll: false });
-    // We intentionally do not include `searchParams` in deps — the URL
-    // write is driven purely by our own selection, not by the user's
-    // browser history.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIdForUrlSync, listState.status, router]);
-
-  // URL -> selection (deep link + back button).
-  useEffect(() => {
-    if (listState.status !== "ready") return;
-    // Defer the state update out of the effect's synchronous window so
-    // the react-hooks/set-state-in-effect rule doesn't fire (and so we
-    // don't trigger a cascading render). The deferral also matches the
-    // "URL changes are a side-channel from outside React" pattern.
-    queueMicrotask(() => {
-      if (urlParam === null) {
-        // No param: select first (the lg+ shell auto-fills this).
-        setListState((prev) =>
-          prev.status === "ready" && prev.selectedId !== prev.items[0]?.id
-            ? { ...prev, selectedId: prev.items[0]?.id ?? null }
-            : prev,
-        );
-        return;
-      }
-      // Capture the items snapshot once for the exists-check below.
-      setListState((prev) => {
-        if (prev.status !== "ready") return prev;
-        const exists = prev.items.some((it) => it.id === urlParam);
-        const fallbackId = prev.items[0]?.id ?? null;
-        if (!exists) {
-          // Unknown id — silently fall back to the first exploration.
-          return prev.selectedId !== fallbackId
-            ? { ...prev, selectedId: fallbackId }
-            : prev;
-        }
-        return prev.selectedId !== urlParam
-          ? { ...prev, selectedId: urlParam }
-          : prev;
-      });
-    });
-  }, [urlParam, listState]);
-
-  // ------------------------------------------------------------------
-  // Polling — derived `shouldPoll` boolean drives a stable interval that
-  // fires only while the current detail is `Working`. Stops automatically
-  // the moment status flips to `Idle` or `Failed`.
+  // Detail polling: when the SELECTED detail is `Working`, poll it on
+  // the 4s interval. Refetch the list once on each terminal transition
+  // (Idle/Failed) so the rail row catches up. Other rows' status flips
+  // are handled by the list-poll below (anyWorking).
   // ------------------------------------------------------------------
   const currentDetail =
     detailState.status === "ready" ? detailState.detail : null;
 
-  // Derived `shouldPoll` based on the *current* detail id + status only.
-  // We intentionally avoid reading `detailState` itself in the deps — the
-  // setDetailState calls below would otherwise tear down + re-establish
-  // the interval every poll tick, which both wastes work and lets a stale
-  // "Working" tick fire after the backend has already gone Idle.
-  const pollingId =
-    detailState.status === "ready" ? detailState.detail.id : null;
+  const pollingId = detailState.status === "ready" ? detailState.detail.id : null;
   const pollingStatus =
     detailState.status === "ready" ? detailState.detail.status : null;
-  const shouldPoll = pollingStatus === "Working";
+  const shouldPollDetail = pollingStatus === "Working";
 
   useEffect(() => {
-    if (!accessToken || !pollingId || !shouldPoll) return;
+    if (!accessToken || !pollingId || !shouldPollDetail) return;
 
     let cancelled = false;
     let currentController: AbortController | null = null;
 
     const interval = setInterval(() => {
-      // Re-read latest state at tick time. If the detail has flipped to
-      // Idle/Failed between ticks, skip this round so we don't paint a
-      // stale frame.
-      // (We can't use `currentDetail` here — it captures the value at
-      // effect setup. The polled response above has already updated
-      // detailState via the setter below.)
       if (currentController) currentController.abort();
       currentController = new AbortController();
       const signal = currentController.signal;
@@ -396,8 +370,6 @@ function AdvisorPageShell() {
         try {
           const next = await getExploration(idAtTick, tokenAtTick, signal);
           if (cancelled || signal.aborted) return;
-          // If the response is no longer Working, clear the interval
-          // immediately instead of waiting for the next tick.
           if (next.status !== "Working") {
             clearInterval(interval);
           }
@@ -410,41 +382,95 @@ function AdvisorPageShell() {
           // Swallow aborts + transient errors; the next tick will retry.
         }
       })();
-    }, POLL_INTERVAL_MS);
+    }, LIST_POLL_INTERVAL_MS);
 
     return () => {
       cancelled = true;
       clearInterval(interval);
       if (currentController) currentController.abort();
     };
-  }, [accessToken, pollingId, shouldPoll]);
+  }, [accessToken, pollingId, shouldPollDetail]);
 
-  // After a polling terminal event (idle / failed), refresh the list
-  // once so the row metadata catches up.
+  // Refetch the list every time the SELECTED exploration's status
+  // transitions to a terminal state (Idle or Failed). The ref is keyed
+  // on the exploration id: once we refetch on this id's first terminal
+  // flip, we skip further refetches until the id goes back to Working
+  // (e.g. a `Working → Idle → Failed` chain on the same id only refetches
+  // once — the first `Idle` — because the ref still matches; a fresh
+  // turn (`Idle → Working → Idle`) refetches again because the Working
+  // tick resets the ref).
   const hasRefreshedListOnTerminalRef = useRef<string | null>(null);
   useEffect(() => {
     if (!currentDetail) return;
-    if (currentDetail.status === "Working") return;
+    if (currentDetail.status === "Working") {
+      // Reset the ref when we go back to Working so the NEXT terminal
+      // transition can refetch again.
+      if (hasRefreshedListOnTerminalRef.current === currentDetail.id) {
+        hasRefreshedListOnTerminalRef.current = null;
+      }
+      return;
+    }
     if (hasRefreshedListOnTerminalRef.current === currentDetail.id) return;
     hasRefreshedListOnTerminalRef.current = currentDetail.id;
     setListVersion((v) => v + 1);
   }, [currentDetail]);
 
   // ------------------------------------------------------------------
+  // List poll: while ANY item is `Working`, refetch the list on the 4s
+  // interval. One AbortController per tick; the interval clears the
+  // moment `anyWorking` flips to false.
+  // ------------------------------------------------------------------
+  const anyWorking = items.some((it) => it.status === "Working");
+  useEffect(() => {
+    if (!accessToken || !anyWorking) return;
+
+    let cancelled = false;
+    let currentController: AbortController | null = null;
+
+    const interval = setInterval(() => {
+      if (currentController) currentController.abort();
+      currentController = new AbortController();
+      const signal = currentController.signal;
+      const tokenAtTick = accessToken;
+
+      (async () => {
+        try {
+          const next = await listExplorations(tokenAtTick, signal);
+          if (cancelled || signal.aborted) return;
+          setListState({ status: "ready", items: next });
+        } catch {
+          // Swallow aborts + transient errors; the next tick will retry.
+        }
+      })();
+    }, LIST_POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      if (currentController) currentController.abort();
+    };
+  }, [accessToken, anyWorking]);
+
+  // ------------------------------------------------------------------
   // Mutations
   // ------------------------------------------------------------------
   const [creating, setCreating] = useState(false);
+
   const handleCreate = useCallback(async () => {
     if (!accessToken || creating) return;
     setCreating(true);
     try {
       const { id } = await createExploration(accessToken);
+      // Bump the list version so the rail row appears immediately, then
+      // route to the new exploration so the detail fetcher picks it up.
       setListVersion((v) => v + 1);
-      setListState((prev) =>
-        prev.status === "ready"
-          ? { ...prev, selectedId: id }
-          : prev,
-      );
+      const params = new URLSearchParams(searchParams?.toString() ?? "");
+      params.set(EXPLORATION_PARAM, id);
+      const qs = params.toString();
+      const path = qs.length > 0
+        ? `${window.location.pathname}?${qs}`
+        : window.location.pathname;
+      router.replace(path, { scroll: false });
     } catch {
       setListState({
         status: "error",
@@ -453,7 +479,31 @@ function AdvisorPageShell() {
     } finally {
       setCreating(false);
     }
-  }, [accessToken, creating]);
+  }, [accessToken, creating, router, searchParams]);
+
+  // The rail's `select` callback — drives ONLY the URL. No state write.
+  const handleSelect = useCallback(
+    (id: string) => {
+      const params = new URLSearchParams(searchParams?.toString() ?? "");
+      params.set(EXPLORATION_PARAM, id);
+      const qs = params.toString();
+      const path = qs.length > 0
+        ? `${window.location.pathname}?${qs}`
+        : window.location.pathname;
+      router.replace(path, { scroll: false });
+    },
+    [router, searchParams],
+  );
+
+  const handleClearSelection = useCallback(() => {
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    params.delete(EXPLORATION_PARAM);
+    const qs = params.toString();
+    const path = qs.length > 0
+      ? `${window.location.pathname}?${qs}`
+      : window.location.pathname;
+    router.replace(path, { scroll: false });
+  }, [router, searchParams]);
 
   const handleRefresh = useCallback(async () => {
     if (!accessToken || !currentDetail) return;
@@ -509,8 +559,8 @@ function AdvisorPageShell() {
             : prev,
         );
       } catch (error) {
-        // Re-throw so the inline alert on the composer / answers form can
-        // surface a friendly retry. We intentionally do NOT flip
+        // Re-throw so the inline alert on the composer / answers form
+        // can surface a friendly retry. We intentionally do NOT flip
         // detail.status to "Failed" — that's reserved for the backend's
         // Advisor turn failure.
         throw new Error(
@@ -537,6 +587,7 @@ function AdvisorPageShell() {
               }
             : prev,
         );
+        // Refresh the rail so the new title appears immediately.
         setListVersion((v) => v + 1);
       } catch {
         // Ignore; the title input stays open so the user can retry.
@@ -547,24 +598,26 @@ function AdvisorPageShell() {
 
   const handleDelete = useCallback(async () => {
     if (!accessToken || !currentDetail) return;
+    const deletedId = currentDetail.id;
     try {
-      await deleteExploration(currentDetail.id, accessToken);
+      await deleteExploration(deletedId, accessToken);
       setDetailState({ status: "none" });
-      // Clear the `?exploration=<id>` query so the URL matches the new
-      // "nothing selected" state (mobile back link uses this).
-      if (urlParam !== null) {
-        const params = new URLSearchParams(searchParams?.toString() ?? "");
-        params.delete(EXPLORATION_PARAM);
-        const qs = params.toString();
-        const path = qs.length > 0 ? `${window.location.pathname}?${qs}` : window.location.pathname;
-        router.replace(path, { scroll: false });
-      }
+      // Remove the deleted id from the URL. If items still remain
+      // (after the upcoming refetch settles), the lg-only fallback in
+      // `selectedId` will land on the new first item. Below lg, clear
+      // the param so the list screen renders.
+      const params = new URLSearchParams(searchParams?.toString() ?? "");
+      params.delete(EXPLORATION_PARAM);
+      const qs = params.toString();
+      const path = qs.length > 0
+        ? `${window.location.pathname}?${qs}`
+        : window.location.pathname;
+      router.replace(path, { scroll: false });
       setListVersion((v) => v + 1);
     } catch {
-      // Ignore — the dialog stays open so the user can retry. The detail
-      // state isn't touched so the UI shows the prior snapshot.
+      // Ignore — the dialog stays open so the user can retry.
     }
-  }, [accessToken, currentDetail, urlParam, searchParams, router]);
+  }, [accessToken, currentDetail, router, searchParams]);
 
   // ------------------------------------------------------------------
   // Compare-mode handlers
@@ -595,23 +648,6 @@ function AdvisorPageShell() {
       // idempotent and the user can retry again.
     }
   }, [accessToken, compareState]);
-
-  const handleClearSelection = useCallback(() => {
-    const params = new URLSearchParams(searchParams?.toString() ?? "");
-    params.delete(EXPLORATION_PARAM);
-    const qs = params.toString();
-    const path = qs.length > 0 ? `${window.location.pathname}?${qs}` : window.location.pathname;
-    router.replace(path, { scroll: false });
-  }, [searchParams, router]);
-
-  const handleSelect = useCallback(
-    (id: string) => {
-      setListState((prev) =>
-        prev.status === "ready" ? { ...prev, selectedId: id } : prev,
-      );
-    },
-    [],
-  );
 
   // ------------------------------------------------------------------
   // Top-level render
@@ -657,7 +693,7 @@ function AdvisorPageShell() {
     return (
       <AdvisorCompare
         compareState={compareState}
-        list={listState.items}
+        list={items}
         accessToken={accessToken ?? ""}
         onCancel={handleCancelCompare}
         onRetry={handleCompareRetry}
@@ -666,14 +702,13 @@ function AdvisorPageShell() {
     );
   }
 
-  // "No explorations yet" — only shown after the auto-create attempt
-  // is done so a first-visit doesn't briefly flash an empty state
-  // before the create call resolves.
-  if (
-    listState.items.length === 0 &&
-    autoCreateAttempted &&
-    !creating
-  ) {
+  // "No explorations yet" — only shown after the first-list response
+  // resolved AND the auto-create attempt is done so a first-visit
+  // doesn't briefly flash an empty state before the create call
+  // resolves. The "first response empty" path is handled by the
+  // auto-create effect above; this branch fires for the
+  // "first response non-empty, then delete-the-last-one" case.
+  if (items.length === 0 && firstListResolved && !creating) {
     return (
       <div className="px-4 py-10 lg:px-8 lg:py-12">
         <div className="mx-auto flex w-full max-w-[820px] flex-col gap-6">
@@ -692,18 +727,17 @@ function AdvisorPageShell() {
     );
   }
 
-  const atLimit = listState.items.length >= MAX_EXPLORATIONS_PER_STUDENT;
+  const atLimit = items.length >= MAX_EXPLORATIONS_PER_STUDENT;
 
   return (
     <AdvisorShell
-      items={listState.items}
-      selectedId={listState.selectedId}
+      items={items}
+      selectedId={selectedId}
       detailState={detailState}
       compareState={compareState}
       compareError={compareError}
       atLimit={atLimit}
-      urlParam={urlParam}
-      compareSubmitting={false}
+      isLg={isLg}
       accessToken={accessToken ?? ""}
       onSelect={handleSelect}
       onCreate={handleCreate}
@@ -732,7 +766,7 @@ function AdvisorPageShell() {
 // Shell — renders the list+detail+rail layout with breakpoint-aware
 // structure: rail at `lg+`, split workspace at `xl+`, stacked with
 // tabs below `xl`. Phone layout shows either the list or the detail
-// (driven by the URL param).
+// (driven by the URL param) — never both at once.
 // --------------------------------------------------------------------
 
 interface AdvisorShellProps {
@@ -742,8 +776,7 @@ interface AdvisorShellProps {
   compareState: CompareState;
   compareError: string | null;
   atLimit: boolean;
-  urlParam: string | null;
-  compareSubmitting: boolean;
+  isLg: boolean;
   accessToken: string;
   onSelect: (id: string) => void;
   onCreate: () => void;
@@ -772,8 +805,7 @@ function AdvisorShell({
   compareState,
   compareError,
   atLimit,
-  urlParam,
-  compareSubmitting,
+  isLg,
   accessToken,
   onSelect,
   onCreate,
@@ -787,11 +819,11 @@ function AdvisorShell({
   onClearSelection,
   creating,
 }: AdvisorShellProps) {
-  // Phone layout: show only the list when no exploration is selected
-  // (or when the URL has no `?exploration=` param). The detail screen
-  // appears once a specific id is in the URL — with a back link that
-  // clears the param.
-  const showPhoneDetail = urlParam !== null;
+  // The selectedId is the URL-derived one — when it matches an item,
+  // we're on the detail screen; when it doesn't (or is null below lg),
+  // we're on the list screen. The two screens are mutually exclusive.
+  const showPhoneDetail = selectedId != null;
+
   // Compare-mode is engaged locally in the rail. We surface the rail's
   // "Pick two explorations." copy under the phone heading block once the
   // user has clicked Compare.
@@ -802,92 +834,106 @@ function AdvisorShell({
   return (
     <div className="px-4 py-5 lg:px-8 lg:pt-8 lg:pb-12">
       <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-4 lg:grid lg:grid-cols-[272px_minmax(0,1fr)] lg:items-start lg:gap-6">
-        {/* Left column on lg+: the explorations rail (also used as the
-            full-width list screen below lg). */}
-        <AdvisorRail
-          items={items}
-          selectedId={selectedId}
-          onSelect={onSelect}
-          onCreate={onCreate}
-          accessToken={accessToken}
-          onCompareRequest={onCompareRequest}
-          onCompareError={onCompareError}
-          compareSubmitting={compareSubmitting}
-          creating={creating}
-          atLimit={atLimit}
-          disabled={compareState.status !== "selecting"}
-        />
+        {/* Phone-only list screen heading. Rendered ABOVE the rail on
+            the list screen below lg (where the rail is the only thing
+            the user sees); hidden everywhere else because the rail at
+            lg+ carries its own header, and the phone detail screen has
+            its own back-link heading. */}
+        {!showPhoneDetail && !isLg && (
+          <div className="lg:hidden">
+            <h1
+              className="font-heading text-[26px] font-semibold leading-tight text-foreground"
+              style={{ color: "#2a1830" }}
+            >
+              Advisor
+            </h1>
+            <p className="mt-1.5 text-sm text-muted-foreground">
+              {inCompareMode
+                ? "Pick two explorations to compare."
+                : "One exploration for each direction. Each keeps its own summary."}
+            </p>
+          </div>
+        )}
 
-        {/* Right column on lg+: the workspace (title row + conversation + summary). */}
-        <div className="flex min-w-0 flex-1 flex-col gap-5">
-          {/* Phone-only list screen heading (above the rail on phone when
-              there's no ?exploration= param). */}
-          {!showPhoneDetail && (
-            <div className="lg:hidden">
-              <h1
-                className="font-heading text-[26px] font-semibold leading-tight"
-                style={{ color: "#2a1830" }}
-              >
-                Advisor
-              </h1>
-              <p
-                className="mt-1.5 text-[14px] text-muted-foreground"
-                style={{ marginTop: 6 }}
-              >
-                {inCompareMode
-                  ? "Pick two explorations to compare."
-                  : "One exploration for each direction. Each keeps its own summary."}
-              </p>
-            </div>
-          )}
+        {/* Below lg, hide the rail entirely when the user is on the
+            detail screen. Above lg, the rail is always visible. */}
+        {(!showPhoneDetail || isLg) && (
+          <AdvisorRail
+            items={items}
+            selectedId={selectedId}
+            onSelect={onSelect}
+            onCreate={onCreate}
+            accessToken={accessToken}
+            onCompareRequest={onCompareRequest}
+            onCompareError={onCompareError}
+            compareErrorMessage={compareError}
+            compareSubmitting={false}
+            creating={creating}
+            atLimit={atLimit}
+            disabled={compareState.status !== "selecting"}
+          />
+        )}
 
-          {/* Phone-only detail screen heading + back link. */}
-          {showPhoneDetail && (
-            <div className="flex flex-col gap-3 lg:hidden">
-              <button
-                type="button"
-                onClick={onClearSelection}
-                className="inline-flex w-fit items-center gap-1.5 text-[13px] font-semibold leading-tight text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                style={{ color: "#6e6488" }}
-              >
-                <ArrowLeft className="size-3.5" aria-hidden strokeWidth={2} />
-                Explorations
-              </button>
-              {compareError && (
-                <p role="alert" className="text-[13px]" style={{ color: "#b3261e" }}>
-                  {compareError}
-                </p>
-              )}
-            </div>
-          )}
+        {/* Below lg, hide the workspace entirely when the user is on the
+            list screen. Above lg, the workspace is always visible. */}
+        {(showPhoneDetail || isLg) && (
+          <div className="flex min-w-0 flex-1 flex-col gap-5">
+            {/* Phone-only detail screen heading + back link. */}
+            {showPhoneDetail && !isLg && (
+              <div className="flex flex-col gap-3 lg:hidden">
+                <button
+                  type="button"
+                  onClick={onClearSelection}
+                  className="inline-flex w-fit items-center gap-1.5 text-[13px] font-semibold leading-tight text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                  style={{ color: "#6e6488" }}
+                >
+                  <ArrowLeft
+                    className="size-3.5"
+                    aria-hidden
+                    strokeWidth={2}
+                  />
+                  Explorations
+                </button>
+                {compareError && (
+                  <p
+                    role="alert"
+                    className="text-[13px]"
+                    style={{ color: "#b3261e" }}
+                  >
+                    {compareError}
+                  </p>
+                )}
+              </div>
+            )}
 
-          {detailState.status === "loading" && (
-            <div className="flex min-h-[200px] items-center justify-center rounded-2xl border border-border bg-card">
-              <p className="text-sm text-muted-foreground">Loading…</p>
-            </div>
-          )}
+            {detailState.status === "loading" && (
+              <div className="flex min-h-[200px] items-center justify-center rounded-2xl border border-border bg-card">
+                <p className="text-sm text-muted-foreground">Loading…</p>
+              </div>
+            )}
 
-          {detailState.status === "error" && (
-            <AdvisorErrorState
-              title="Could not load this exploration"
-              message={detailState.message}
-              onRetry={() => {
-                /* re-trigger detail fetch by toggling list state */
-              }}
-            />
-          )}
+            {detailState.status === "error" && (
+              <AdvisorErrorState
+                title="Could not load this exploration"
+                message={detailState.message}
+                onRetry={() => {
+                  /* re-trigger detail fetch by toggling list state */
+                }}
+              />
+            )}
 
-          {detailState.status === "ready" && (
-            <AdvisorWorkspace
-              detail={detailState.detail}
-              onRefresh={onRefresh}
-              onRetry={onRetry}
-              onRename={onRename}
-              onDelete={onDelete}
-              onSubmitMessage={onSubmitMessage}
-            />
-          )}
-        </div>
+            {detailState.status === "ready" && (
+              <AdvisorWorkspace
+                detail={detailState.detail}
+                onRefresh={onRefresh}
+                onRetry={onRetry}
+                onRename={onRename}
+                onDelete={onDelete}
+                onSubmitMessage={onSubmitMessage}
+              />
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -895,12 +941,6 @@ function AdvisorShell({
 
 // --------------------------------------------------------------------
 // Workspace — title row + conversation + summary.
-//
-// Renders the {@link AdvisorDetail} once with its default `auto` layout:
-// at `xl+` it splits into the side-by-side conversation | summary grid;
-// below `xl` it renders the tabs nav + only the active panel. The
-// breakpoint is tracked via `matchMedia` so only ONE variant ends up
-// in the DOM at any time.
 // --------------------------------------------------------------------
 
 function AdvisorWorkspace({

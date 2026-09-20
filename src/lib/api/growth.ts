@@ -51,30 +51,34 @@ export interface SuggestionSource {
 }
 
 /** One gap in an exploration's latest summary. `band` is optional — the AI
- * may report a gap without a band (per the parser's lenient validation). */
+ * may report a gap without a band (per the parser's lenient validation).
+ * The field can come back as `null` from a backend that always serializes
+ * nullable values, or be missing entirely (undefined) from one that omits
+ * nulls — callers should treat both as "no band" via a `== null` check. */
 export interface ExplorationGap {
   title: string;
   detail: string;
   band?: GapBand | null;
 }
 
-/** One suggestion in an exploration's latest summary. `source` is null when
- * the AI didn't reference a `FeedItem`, or when its referenced id didn't
+/** One suggestion in an exploration's latest summary. `source` is null
+ * (or undefined, depending on backend serializer settings) when the AI
+ * didn't reference a `FeedItem`, or when its referenced id didn't
  * resolve on the backend (unknown ids are silently dropped). */
 export interface ExplorationSuggestion {
   title: string;
   reason: string;
   nextStep: string;
-  source: SuggestionSource | null;
+  source: SuggestionSource | null | undefined;
 }
 
 /** The latest summary attached to an exploration. `changeNote` is set on
  * refresh turns ("what changed") and is null on the version that follows
- * the opening turn. */
+ * the opening turn (may also come back as undefined). */
 export interface ExplorationSummary {
   versionNumber: number;
   createdAt: string;
-  changeNote: string | null;
+  changeNote?: string | null;
   gaps: ExplorationGap[];
   suggestions: ExplorationSuggestion[];
 }
@@ -90,31 +94,34 @@ export interface ExplorationQuestion {
 /** One message in an exploration conversation. `questions` is only set on
  * advisor messages that asked the student for structured input (the opening
  * turn, and any follow-up turn where the AI still needs answers); pure
- * text replies leave it null. */
+ * text replies leave it null (or undefined). */
 export interface ExplorationMessage {
   id: string;
   role: ExplorationMessageRole;
   content: string;
-  questions: ExplorationQuestion[] | null;
+  questions?: ExplorationQuestion[] | null;
   createdAt: string;
 }
 
 /** Full detail payload for `GET /api/growth/explorations/{id}` and the
- * create-handler's polling target. */
+ * create-handler's polling target. `lastError` and `latestSummary` can
+ * come back as null from the serializer that always writes nulls, or be
+ * absent entirely from one that omits nulls; callers use `== null`. */
 export interface ExplorationDetail {
   id: string;
   title: string;
   status: ExplorationStatus;
-  lastError: string | null;
+  lastError?: string | null;
   createdAt: string;
   updatedAt: string;
   messages: ExplorationMessage[];
-  latestSummary: ExplorationSummary | null;
+  latestSummary: ExplorationSummary | null | undefined;
 }
 
 /** List-row payload for `GET /api/growth/explorations`. `latestVersionNumber`
  * is null when the exploration hasn't produced a summary yet (the opening
  * turn is still in flight, or it failed before writing a summary version).
+ * Callers compare with `== null` to handle both null and undefined.
  * Named `ExplorationListItem` (rather than `ExplorationSummary`) to avoid
  * shadowing the {@link ExplorationSummary} record on `ExplorationDetail`,
  * which carries the actual gaps/suggestions payload. */
@@ -123,7 +130,7 @@ export interface ExplorationListItem {
   title: string;
   status: ExplorationStatus;
   updatedAt: string;
-  latestVersionNumber: number | null;
+  latestVersionNumber: number | null | undefined;
 }
 
 /** One answer to one of the questions posed in an advisor message. The
@@ -156,7 +163,7 @@ export interface ComparisonDetail {
   firstExplorationId: string;
   secondExplorationId: string;
   status: ComparisonStatus;
-  resultText: string | null;
+  resultText?: string | null;
   createdAt: string;
 }
 
