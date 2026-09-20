@@ -61,6 +61,10 @@ export function Header() {
   // `startsWith` (not `===`) so deep links to sub-routes (e.g. the advisor
   // comparison screen) keep the "Advisor" nav link highlighted.
   const isAdvisorActive = pathname?.startsWith("/dashboard/advisor") ?? false;
+  // STOR-43 Phase 3 — same `startsWith` treatment for the visibility page
+  // so the nav link stays highlighted if the route grows sub-paths later.
+  const isVisibilityActive =
+    pathname?.startsWith("/dashboard/visibility") ?? false;
 
   async function handleLogout() {
     setMenuOpen(false);
@@ -115,6 +119,7 @@ export function Header() {
             isDashboardActive={isDashboardActive}
             isPortfolioActive={isPortfolioActive}
             isAdvisorActive={isAdvisorActive}
+            isVisibilityActive={isVisibilityActive}
           />
         </div>
       )}
@@ -131,6 +136,7 @@ export function Header() {
               isDashboardActive={isDashboardActive}
               isPortfolioActive={isPortfolioActive}
               isAdvisorActive={isAdvisorActive}
+              isVisibilityActive={isVisibilityActive}
             />
           )}
         </div>
@@ -248,17 +254,25 @@ function AccountMenu({
  * menu. Active state is rendered as a heavier font weight plus a 2px
  * bottom-border accent in the primary color — same general treatment as
  * the account dropdown's active/hover styling, adapted for a top-bar link.
+ *
+ * Exported (rather than kept module-local) so the visibility-page test
+ * suite can assert the "Visibility" link appears with `aria-current="page"`
+ * at the agreed pathname without having to mock the entire `Header`
+ * surface (which pulls `useSession`, `signOut`, `useRouter`,
+ * `usePathname`, etc.).
  */
-function StudentNav({
+export function StudentNav({
   className,
   isDashboardActive,
   isPortfolioActive,
   isAdvisorActive,
+  isVisibilityActive,
 }: {
   className?: string;
   isDashboardActive: boolean;
   isPortfolioActive: boolean;
   isAdvisorActive: boolean;
+  isVisibilityActive: boolean;
 }) {
   return (
     <nav
@@ -273,6 +287,12 @@ function StudentNav({
       </StudentNavLink>
       <StudentNavLink href="/dashboard/advisor" active={isAdvisorActive}>
         Advisor
+      </StudentNavLink>
+      {/* STOR-43 Phase 3 — opt-in surface for the talent-search index.
+          Sits after Advisor so the order matches how a student usually
+          moves through the app: explore → reflect → share. */}
+      <StudentNavLink href="/dashboard/visibility" active={isVisibilityActive}>
+        Visibility
       </StudentNavLink>
     </nav>
   );
