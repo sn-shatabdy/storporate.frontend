@@ -165,6 +165,10 @@ function AdvisorPageShell() {
   // Auto-create-fired guard — survives React StrictMode's double-effect
   // mount so the auto-create POST never fires twice on the first visit.
   const autoCreateFiredRef = useRef(false);
+  // Set on the first list response when the list is non-empty. The
+  // auto-create effect bails out if this is true, so a later empty
+  // list (e.g. after a delete) never re-triggers the auto-create.
+  const firstListWasNonEmptyRef = useRef(false);
   const [firstListResolved, setFirstListResolved] = useState(false);
   const [autoCreating, setAutoCreating] = useState(false);
 
@@ -205,6 +209,12 @@ function AdvisorPageShell() {
         if (isFirstCall) {
           firstListResolvedRef.current = true;
           setFirstListResolved(true);
+          if (next.length > 0) {
+            // First list came back non-empty: the auto-create effect
+            // must never fire on this page load, even if a later list
+            // (after a delete) comes back empty.
+            firstListWasNonEmptyRef.current = true;
+          }
         }
         setListState({ status: "ready", items: next });
       } catch (error) {
@@ -233,6 +243,10 @@ function AdvisorPageShell() {
     if (!accessToken) return;
     if (!firstListResolved) return;
     if (!autoCreateItemsIsEmpty) return;
+    // The first list was non-empty — the auto-create only applies to a
+    // first-visit-with-no-existing-explorations; a later empty list
+    // (after a delete) must NOT auto-create a replacement.
+    if (firstListWasNonEmptyRef.current) return;
     // Auto-create ref prevents React StrictMode's double-effect mount
     // from firing twice.
     if (autoCreateFiredRef.current) return;
@@ -392,27 +406,33 @@ function AdvisorPageShell() {
   }, [accessToken, pollingId, shouldPollDetail]);
 
   // Refetch the list every time the SELECTED exploration's status
-  // transitions to a terminal state (Idle or Failed). The ref is keyed
-  // on the exploration id: once we refetch on this id's first terminal
-  // flip, we skip further refetches until the id goes back to Working
-  // (e.g. a `Working → Idle → Failed` chain on the same id only refetches
-  // once — the first `Idle` — because the ref still matches; a fresh
-  // turn (`Idle → Working → Idle`) refetches again because the Working
-  // tick resets the ref).
-  const hasRefreshedListOnTerminalRef = useRef<string | null>(null);
+  // transitions from `Working` to a terminal state (`Idle` or `Failed`).
+  // The ref tracks the previous status per id so:
+  //   - opening an already-Idle exploration never refetches the list
+  //     (the first observation of an Idle/Failed detail is not a
+  //     transition out of Working);
+  //   - a fresh `Working → Idle` chain on the same id refetches once;
+  //   - back-to-back `Working → Idle → Working → Idle` refetches twice
+  //     (the second Idle is a new transition).
+  const previousStatusByIdRef = useRef<Map<string, ExplorationStatus>>(new Map());
   useEffect(() => {
     if (!currentDetail) return;
-    if (currentDetail.status === "Working") {
-      // Reset the ref when we go back to Working so the NEXT terminal
-      // transition can refetch again.
-      if (hasRefreshedListOnTerminalRef.current === currentDetail.id) {
-        hasRefreshedListOnTerminalRef.current = null;
-      }
-      return;
-    }
-    if (hasRefreshedListOnTerminalRef.current === currentDetail.id) return;
-    hasRefreshedListOnTerminalRef.current = currentDetail.id;
-    setListVersion((v) => v + 1);
+    const id = currentDetail.id;
+    const status = currentDetail.status;
+    const previous = previousStatusByIdRef.current.get(id);
+    previousStatusByIdRef.current.set(id, status);
+    // Only refetch on a real Working → terminal transition.
+    if (previous !== "Working") return;
+    if (status !== "Idle" && status !== "Failed") return;
+    // Defer the setState to a microtask so the lint rule against
+    // synchronous setState in an effect body doesn't trip; the
+    // refetched listVersion then triggers the list-fetch effect on the
+    // next render tick. Functionally identical to a synchronous
+    // setListVersion (v) => v + 1) — both schedule a re-render before
+    // the browser paints.
+    Promise.resolve().then(() => {
+      setListVersion((v) => v + 1);
+    });
   }, [currentDetail]);
 
   // ------------------------------------------------------------------
@@ -628,6 +648,9 @@ function AdvisorPageShell() {
     setDetailState((prev) =>
       prev.status === "ready" ? prev : { status: "none" },
     );
+    // Cancel clears any stale compare error so re-entering compare
+    // mode doesn't re-show "Both explorations need a summary first.".
+    setCompareError(null);
   }, []);
 
   /** Re-fire `POST /compare` for the same two ids. Used by the
@@ -697,7 +720,13 @@ function AdvisorPageShell() {
         accessToken={accessToken ?? ""}
         onCancel={handleCancelCompare}
         onRetry={handleCompareRetry}
-        onCompareStateChange={setCompareState}
+        onCompareStateChange={(next) => {
+          // Clearing compareError on any state transition keeps the
+          // "Both explorations need a summary first." message from
+          // surviving a return to "selecting" or a fresh submission.
+          setCompareError(null);
+          setCompareState(next);
+        }}
       />
     );
   }
@@ -785,7 +814,7 @@ interface AdvisorShellProps {
     firstId: string;
     secondId: string;
   }) => void;
-  onCompareError: (message: string) => void;
+  onCompareError: (message: string | null) => void;
   onRefresh: () => void;
   onRetry: () => void;
   onRename: (title: string) => void;

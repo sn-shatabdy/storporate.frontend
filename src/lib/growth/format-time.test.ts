@@ -1,3 +1,12 @@
+// Pin a known timezone for the whole file so the local-time assertions
+// are reproducible regardless of the host CI's default zone. The
+// formatter must read in the VIEWER's local timezone (so a Dhaka
+// student sees their own clock); this file pins Asia/Dhaka at the top
+// so the "Dhaka student sees 21:33" assertion exercises the formatter
+// end-to-end. The file still passes under `TZ=UTC` because Node honors
+// the assignment below and the formatter reads in the pinned zone.
+process.env.TZ = "Asia/Dhaka";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -78,27 +87,41 @@ describe("formatStarted", () => {
 });
 
 describe("formatSummaryTime", () => {
-  it("formats the date as en-GB day + short month with the 24-hour time", () => {
-    // The approved design canvas pins "20 Sep, 09:14"; we exercise the
-    // exact same wire input. Locale and timezone are pinned by the
-    // `toLocaleTimeString("en-GB", ...)` call so the assertion holds
-    // regardless of the host's default locale.
-    expect(formatSummaryTime("2026-09-20T09:14:00Z", NOW)).toBe("20 Sep, 09:14");
+  // The formatter must read in the VIEWER's local timezone — the wire
+  // timestamp is UTC, but a student in Dhaka (UTC+6) should see their
+  // local clock, not 6 hours earlier. These tests build the input from
+  // local parts so they pass on ANY host timezone.
+
+  it("renders a local 09:14 timestamp as '20 Sep, 09:14'", () => {
+    // `new Date(2026, 8, 20, 9, 14)` is 20 Sep 2026 09:14 LOCAL.
+    const iso = new Date(2026, 8, 20, 9, 14).toISOString();
+    expect(formatSummaryTime(iso, NOW)).toBe("20 Sep, 09:14");
   });
 
-  it("renders the time as HH:mm even when minutes or hours are zero", () => {
-    expect(formatSummaryTime("2026-09-20T00:00:00Z", NOW)).toBe("20 Sep, 00:00");
-    expect(formatSummaryTime("2026-09-20T09:05:00Z", NOW)).toBe("20 Sep, 09:05");
+  it("renders a local 21:33 timestamp as '20 Sep, 21:33'", () => {
+    // The Dhaka live-evidence case: a summary written at 21:33 local
+    // must show "21:33", not whatever the UTC reading happens to be.
+    const iso = new Date(2026, 8, 20, 21, 33).toISOString();
+    expect(formatSummaryTime(iso, NOW)).toBe("20 Sep, 21:33");
+  });
+
+  it("renders midnight as '00:00' (en-GB 24-hour, not '24:00')", () => {
+    const iso = new Date(2026, 8, 20, 0, 0).toISOString();
+    expect(formatSummaryTime(iso, NOW)).toBe("20 Sep, 00:00");
   });
 
   it("includes the year when the date is in a different calendar year", () => {
-    expect(formatSummaryTime("2025-09-20T09:14:00Z", NOW)).toBe("20 Sep 2025, 09:14");
+    const iso = new Date(2025, 8, 20, 9, 14).toISOString();
+    expect(formatSummaryTime(iso, NOW)).toBe("20 Sep 2025, 09:14");
   });
 
-  it("renders the time in UTC regardless of the host timezone", () => {
-    // The wire ISO is UTC; the formatter pins `timeZone: "UTC"` so a CI
-    // host in any zone produces the same canonical string.
-    expect(formatSummaryTime("2026-09-20T23:59:00Z", NOW)).toBe("20 Sep, 23:59");
+  it("renders the time in the viewer's local timezone (Asia/Dhaka case)", () => {
+    // The wire ISO 2026-09-20T15:33:00Z is 21:33 in Asia/Dhaka
+    // (UTC+6) — a Dhaka student must see "21:33". This test fails on
+    // the old UTC-pinned formatter (it would print "15:33").
+    expect(formatSummaryTime("2026-09-20T15:33:00Z", NOW)).toBe(
+      "20 Sep, 21:33",
+    );
   });
 
   it("falls back to the raw ISO when the input is unparseable", () => {

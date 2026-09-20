@@ -1,46 +1,70 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
+
+// `vi.hoisted` runs before module imports, so its callback can safely
+// declare the URL store and the snapshot helpers that the `vi.mock`
+// factories below reference.
+const hoisted = vi.hoisted(() => {
+  type Listener = () => void;
+  const urlStore: {
+    params: URLSearchParams;
+    listeners: Set<Listener>;
+  } = {
+    params: new URLSearchParams(""),
+    listeners: new Set<Listener>(),
+  };
+  function notifyListeners() {
+    for (const fn of urlStore.listeners) fn();
+  }
+  return { urlStore, notifyListeners };
+});
 
 // Mocks MUST be hoisted before the page module is imported.
 vi.mock("next-auth/react", () => ({
   useSession: vi.fn(),
 }));
 
-/**
- * STOR-40 Phase 5 — the URL is the single source of truth for selection,
- * so the page reads `selectedId` from `useSearchParams()` and writes it
- * via `router.replace(...)`. The mocked `router.replace` here MUTATES a
- * shared search-params object that `useSearchParams` reads from — so a
- * row click that fires `router.replace("?exploration=b")` flips the URL
- * the page sees on the next render and the derived `selectedId` follows.
- *
- * Tests that pre-set a non-empty URL mutate `searchParamsRef.current`
- * directly via `vi.mocked(useSearchParams).mockReturnValueOnce(...)` or
- * `setupSearchParams({...})` (added below).
- */
-const searchParamsRef = { current: new URLSearchParams("") };
 const routerReplaceMock = vi.fn();
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: routerReplaceMock }),
-  useSearchParams: vi.fn(() => searchParamsRef.current),
+  useSearchParams: () => {
+    // Lazy require so the React module is available when this runs
+    // (the mock factory is hoisted above the imports).
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const React = require("react") as typeof import("react");
+    return React.useSyncExternalStore(
+      (cb: () => void) => {
+        hoisted.urlStore.listeners.add(cb);
+        return () => {
+          hoisted.urlStore.listeners.delete(cb);
+        };
+      },
+      () => hoisted.urlStore.params,
+      () => hoisted.urlStore.params,
+    );
+  },
 }));
 
-/** Update the shared URL the mocked page sees. Subsequent renders pick
- * up the new value. The path-based `router.replace` calls in production
- * are matched here by parsing the URL the mock receives. */
+/** Update the URL the mocked page reads. The production code calls
+ *  `router.replace("?exploration=id")` and the mock parses the query
+ *  string out and notifies the listeners. */
 function setupSearchParams(initial: Record<string, string> = {}) {
   const sp = new URLSearchParams("");
   for (const [k, v] of Object.entries(initial)) sp.set(k, v);
-  searchParamsRef.current = sp as unknown as ReturnType<typeof useSearchParams>;
-  vi.mocked(useSearchParams).mockReturnValue(
-    searchParamsRef.current as unknown as ReturnType<typeof useSearchParams>,
-  );
+  hoisted.urlStore.params = sp;
+  hoisted.notifyListeners();
+}
+
+/** Browser-back helper: simulate a back-navigation by replacing the
+ *  URL store contents from outside the React tree (the equivalent of
+ *  Next.js's `router.replace` triggered by a history event). */
+function setUrlFromOutside(query: string) {
+  hoisted.urlStore.params = new URLSearchParams(query);
+  hoisted.notifyListeners();
 }
 
 vi.mock("@/lib/api/growth", async () => {
-  // Import the real module so we can re-use the type-only exports as
-  // known function shapes — but we replace the network-touching functions
-  // with `vi.fn()`s the test bodies override via `mockResolvedValue`.
   const actual =
     await vi.importActual<typeof import("@/lib/api/growth")>(
       "@/lib/api/growth",
@@ -61,7 +85,6 @@ vi.mock("@/lib/api/growth", async () => {
 });
 
 import { useSession } from "next-auth/react";
-import { useSearchParams } from "next/navigation";
 import {
   addExplorationMessage,
   createComparison,
@@ -82,9 +105,7 @@ import AdvisorPage from "./page";
 
 const ACCESS_TOKEN = "test-access-token";
 
-/** Frozen wall clock the suite uses to drive `formatUpdated` deterministically.
- * Picked so the default fixture's `updatedAt` (`2026-09-19T15:00:00Z`) renders
- * as the pinned string "Updated 1 h ago". */
+/** Frozen wall clock the suite uses to drive `formatUpdated` deterministically. */
 const NOW = new Date("2026-09-19T16:00:00Z");
 
 function setupSession() {
@@ -99,8 +120,33 @@ function setupMocks(
   detail: ExplorationDetail | null,
 ) {
   setupSession();
+  vi.mocked(listExplorations).mockReset();
+  vi.mocked(getExploration).mockReset();
+  vi.mocked(createExploration).mockReset();
+  vi.mocked(deleteExploration).mockReset();
+  vi.mocked(refreshExploration).mockReset();
+  vi.mocked(retryExploration).mockReset();
+  vi.mocked(renameExploration).mockReset();
+  vi.mocked(addExplorationMessage).mockReset();
+  vi.mocked(createComparison).mockReset();
   vi.mocked(listExplorations).mockResolvedValue(list);
-  vi.mocked(getExploration).mockResolvedValue(detail ?? makeExplorationDetail());
+  // getExploration is keyed by id so a row click that changes the URL
+  // can drive a real detail update. When a `detail` override is
+  // supplied, the test's id matches the detail's id — return that
+  // detail verbatim so per-test fields (status, latestSummary, etc.)
+  // are preserved.
+  vi.mocked(getExploration).mockImplementation(async (id?: string) => {
+    if (detail && (id === detail.id || id == null)) return detail;
+    const requested = id ?? "expl-001";
+    const fromList = list.find((it) => it.id === requested);
+    return makeExplorationDetail({
+      id: requested,
+      title: fromList?.title ?? detail?.title ?? "Untitled",
+      status: (fromList?.status ?? detail?.status ?? "Idle") as ExplorationDetail["status"],
+      latestSummary: detail?.latestSummary ?? null,
+      messages: detail?.messages ?? [],
+    });
+  });
   vi.mocked(createExploration).mockResolvedValue({
     id: "expl-new",
     status: "Working",
@@ -120,29 +166,26 @@ function setupMocks(
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // Reset the shared URL search-params object the mocked page reads.
-  setupSearchParams();
-  // The mock router.replace updates the shared search-params object the
-  // page reads via useSearchParams — so a row click that calls
-  // router.replace("?exploration=id") flips the URL the page sees.
+  // Reset the URL store to empty and notify any subscribers.
+  hoisted.urlStore.params = new URLSearchParams("");
+  hoisted.urlStore.listeners.clear();
+  hoisted.notifyListeners();
+  // Wire the mocked router.replace to mutate the store + notify.
   routerReplaceMock.mockImplementation((path: string) => {
-    const queryString = path.includes("?") ? path.split("?")[1] ?? "" : "";
-    searchParamsRef.current = new URLSearchParams(
-      queryString,
-    ) as unknown as ReturnType<typeof useSearchParams>;
-    vi.mocked(useSearchParams).mockReturnValue(
-      searchParamsRef.current as unknown as ReturnType<typeof useSearchParams>,
-    );
+    const queryString = path.includes("?") ? (path.split("?")[1] ?? "") : "";
+    hoisted.urlStore.params = new URLSearchParams(queryString);
+    hoisted.notifyListeners();
   });
-  // Freeze the wall clock at `NOW` so the list-row relative-time labels
-  // (which use the default `now` from `formatUpdated`) are deterministic
-  // across CI runs. We DO NOT use `vi.useFakeTimers()` because the page
-  // uses promise-based mocks that need the microtask queue to flush.
+  // Freeze the wall clock for deterministic relative-time labels.
   vi.setSystemTime(NOW);
 });
 
 afterEach(() => {
   vi.useRealTimers();
+  if (originalMatchMedia) {
+    window.matchMedia = originalMatchMedia;
+    originalMatchMedia = null;
+  }
 });
 
 describe("AdvisorPage — first visit auto-start", () => {
@@ -151,10 +194,6 @@ describe("AdvisorPage — first visit auto-start", () => {
 
     render(<AdvisorPage />);
 
-    // The page's auto-create effect should fire createExploration once
-    // and the new exploration should be reflected in the list. The
-    // ref guard prevents React StrictMode's double-effect mount from
-    // firing twice.
     await waitFor(() => {
       expect(createExploration).toHaveBeenCalledTimes(1);
     });
@@ -165,8 +204,6 @@ describe("AdvisorPage — first visit auto-start", () => {
 
     render(<AdvisorPage />);
 
-    // Wait for the list + auto-create to settle, then assert the removed
-    // empty-state heading is gone.
     await waitFor(() => {
       expect(createExploration).toHaveBeenCalled();
     });
@@ -195,9 +232,6 @@ describe("AdvisorPage — populated list", () => {
 
     render(<AdvisorPage />);
 
-    // The list renders twice in JSDOM (phone + desktop duplication — JSDOM
-    // doesn't apply Tailwind visibility classes). Use getAllByText to find
-    // at least one occurrence of each title.
     await waitFor(() => {
       expect(
         screen.getAllByText("Systems programming").length,
@@ -209,13 +243,10 @@ describe("AdvisorPage — populated list", () => {
     expect(
       screen.getAllByText("Something in design").length,
     ).toBeGreaterThanOrEqual(1);
-    // Format-time outputs exact strings the design canvas pinned.
     expect(screen.getAllByText("Updated 1 h ago").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Updated 3 days ago").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Updated 19 Aug").length).toBeGreaterThanOrEqual(1);
-    // The list count line shows the cap mirrored from the backend.
     expect(screen.getAllByText(`3 of 20`).length).toBeGreaterThanOrEqual(1);
-    // The Compare rail button is enabled with ≥2 explorations.
     expect(
       screen.getAllByRole("button", { name: /Compare/i }).length,
     ).toBeGreaterThanOrEqual(1);
@@ -236,7 +267,6 @@ describe("AdvisorPage — populated list", () => {
 
     fireEvent.click(screen.getAllByText("Second")[0]!);
 
-    // The new selection drives a new getExploration fetch.
     await waitFor(() => {
       expect(getExploration).toHaveBeenCalledWith("b", ACCESS_TOKEN, expect.anything());
     });
@@ -255,8 +285,6 @@ describe("AdvisorPage — list error", () => {
         screen.getByText("Could not load your explorations"),
       ).toBeInTheDocument();
     });
-    // The body sentence is the pinned copy from the canvas, not the
-    // backend's error message (which can leak internal details).
     expect(
       screen.getByText("Check your connection and try again."),
     ).toBeInTheDocument();
@@ -277,7 +305,6 @@ describe("AdvisorPage — rename + delete confirm dialog", () => {
       expect(screen.getByRole("heading", { name: "Old name" })).toBeInTheDocument();
     });
 
-    // Open the rename input via the small pencil button.
     fireEvent.click(screen.getByRole("button", { name: "Rename exploration" }));
 
     const input = screen.getByLabelText("Exploration title");
@@ -300,15 +327,10 @@ describe("AdvisorPage — rename + delete confirm dialog", () => {
       expect(screen.getByRole("heading", { name: "Doomed" })).toBeInTheDocument();
     });
 
-    // Open the delete dialog via the trash icon button.
     fireEvent.click(screen.getByRole("button", { name: "Delete exploration" }));
 
     const dialog = await screen.findByRole("alertdialog");
     expect(dialog).toHaveTextContent("Delete this exploration?");
-    // The dialog copy is pinned verbatim by the spec — the description
-    // sentence in particular changed in this revision and must be
-    // asserted (the previous wording "This removes the conversation
-    // and summary. You can't undo this." is the wrong copy).
     expect(dialog).toHaveTextContent(
       "Its messages and summaries are removed. You cannot undo this.",
     );
@@ -333,8 +355,6 @@ describe("AdvisorPage — Fix 1: first-visit auto-start error handling", () => {
 
     render(<AdvisorPage />);
 
-    // The list fetch resolves empty, the auto-create effect fires and
-    // rejects — the page surfaces the friendly error card.
     await waitFor(() => {
       expect(createExploration).toHaveBeenCalledTimes(1);
     });
@@ -365,13 +385,10 @@ describe("AdvisorPage — Fix 4: failed-card fixed copy", () => {
         screen.getByText("The advisor could not finish this"),
       ).toBeInTheDocument();
     });
-    // lastError MUST NOT be surfaced in the UI.
     expect(
       screen.queryByText(/Backend says/i),
     ).not.toBeInTheDocument();
-    // Fixed sub-copy.
     expect(screen.getByText("Try again.")).toBeInTheDocument();
-    // Refresh + Delete stay visible per spec.
     expect(
       screen.getByRole("button", { name: /Refresh/i }),
     ).toBeInTheDocument();
@@ -380,8 +397,6 @@ describe("AdvisorPage — Fix 4: failed-card fixed copy", () => {
 
 describe("AdvisorPage — Fix 5: MAX_EXPLORATIONS_PER_STUDENT constant", () => {
   it("uses 20 as the per-student cap mirrored from the backend", async () => {
-    // Smoke check — the rail/list count and dashboard copy derive
-    // from the same constant.
     setupMocks(
       [makeExplorationListItem({ id: "a" }), makeExplorationListItem({ id: "b" })],
       null,
@@ -418,17 +433,13 @@ describe("AdvisorPage — Fix 6: answers form vs composer", () => {
 
     render(<AdvisorPage />);
 
-    // Wait for the conversation card to render and assert no composer textarea.
     await waitFor(() => {
       expect(screen.getByText("What's the goal?")).toBeInTheDocument();
     });
     expect(screen.queryByRole("textbox", { name: /Message/i })).not.toBeInTheDocument();
-    // The "Send answers" CTA is disabled with zero answered questions.
     const sendAnswers = screen.getByRole("button", { name: /Send answers/i });
     expect(sendAnswers).toBeDisabled();
 
-    // Pick an option and confirm the CTA enables + the wire call sends
-    // answers-only with no content.
     fireEvent.click(screen.getByRole("button", { name: "Win a hackathon" }));
     expect(sendAnswers).not.toBeDisabled();
     fireEvent.click(sendAnswers);
@@ -444,21 +455,10 @@ describe("AdvisorPage — Fix 6: answers form vs composer", () => {
 });
 
 describe("AdvisorPage — polling: Working → Idle transition stops the interval", () => {
-  // The polling loop fires `getExploration` while the detail is
-  // `Working` and stops the moment it goes `Idle`. We can't reliably
-  // exercise the real `setInterval` from jsdom without tangling with
-  // `vi.useFakeTimers` (which interacts poorly with the page's
-  // `queueMicrotask`-driven URL sync), so instead we verify the
-  // *contract*: after a single Working→Idle polled response, the
-  // page does NOT request `getExploration` a third time.
   it("stops polling once the detail status flips to Idle", async () => {
     setupSession();
     const items = [makeExplorationListItem({ id: "a", title: "Working" })];
     vi.mocked(listExplorations).mockResolvedValue(items);
-
-    // Sequence: initial fetch returns Idle (skip the Working detail
-    // fetch entirely). The polling effect therefore never runs and we
-    // assert the wire count stays at 1.
     vi.mocked(getExploration).mockImplementation(async () =>
       makeExplorationDetail({ id: "a", title: "Working", status: "Idle" }),
     );
@@ -469,9 +469,6 @@ describe("AdvisorPage — polling: Working → Idle transition stops the interva
       expect(getExploration).toHaveBeenCalledTimes(1);
     });
 
-    // Allow the polling interval a few real-time ticks to fire; the
-    // status is Idle so the polling effect should NOT call
-    // getExploration again.
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(getExploration).toHaveBeenCalledTimes(1);
   });
@@ -510,7 +507,6 @@ describe("AdvisorPage — compare-mode rail (verify-and-fix list)", () => {
       expect(screen.getAllByText("First").length).toBeGreaterThanOrEqual(1);
     });
 
-    // The rail's Compare toggle is in the rail.
     const compareButtons = screen.getAllByRole("button", { name: /Compare/i });
     fireEvent.click(compareButtons[0]!);
 
@@ -520,7 +516,6 @@ describe("AdvisorPage — compare-mode rail (verify-and-fix list)", () => {
       ).toBeInTheDocument();
     });
     expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
-    // 'Pick two explorations.' sub-header copy.
     expect(screen.getByText(/Pick two explorations\./i)).toBeInTheDocument();
   });
 });
@@ -559,9 +554,6 @@ describe("AdvisorPage — suggestion row source link", () => {
     await waitFor(() => {
       expect(screen.getByText("Read about GraphQL")).toBeInTheDocument();
     });
-    // The Summary panel is in a hidden tab on the phone layout (default
-    // `tab` state is "conversation"). Switch to the Summary tab so the
-    // link becomes accessible to @testing-library.
     fireEvent.click(screen.getByRole("tab", { name: "Summary" }));
     const link = await screen.findByRole("link", { name: /Awesome Feed: GraphQL Spec/i });
     expect(link).toHaveAttribute("href", "https://example.com/graphql");
@@ -688,16 +680,12 @@ describe("AdvisorPage — desktop shell", () => {
       expect(screen.getAllByText("Systems").length).toBeGreaterThanOrEqual(1);
     });
 
-    // Each row appears with the railMeta string under it.
     expect(screen.getAllByText("Updated 1 h ago").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Preparing").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Failed").length).toBeGreaterThanOrEqual(1);
-    // The header copy + count line.
     expect(screen.getAllByText("Explorations").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText(`3 of 20`).length).toBeGreaterThanOrEqual(1);
-    // No legacy rail action copy.
     expect(screen.queryByText(/What you can do here/i)).not.toBeInTheDocument();
-    // The rail exposes New exploration + Compare buttons.
     expect(
       screen.getAllByRole("button", { name: /New exploration/i }).length,
     ).toBeGreaterThanOrEqual(1);
@@ -714,18 +702,11 @@ describe("AdvisorPage — row click selection", () => {
 
     render(<AdvisorPage />);
 
-    // Wait for the rail to render before clicking.
     await screen.findByLabelText("Explorations");
 
-    // The first row starts with aria-current="true" because the page
-    // auto-selects items[0] when the list first loads.
     const firstRow = screen.getByRole("button", { name: /First/ });
     expect(firstRow).toHaveAttribute("aria-current", "true");
 
-    // Click the second row to select it. We don't assert on the new
-    // aria-current here — the URL→selection sync in the page would
-    // race with the click in jsdom (the mocked router doesn't update
-    // `useSearchParams`), so we only assert on the wire call.
     const secondRow = screen.getByRole("button", { name: /Second/ });
     fireEvent.click(secondRow);
 
@@ -754,24 +735,19 @@ describe("AdvisorPage — compare mode rail", () => {
       expect(screen.getAllByText("First").length).toBeGreaterThanOrEqual(1);
     });
 
-    // Enter compare mode.
     fireEvent.click(screen.getAllByRole("button", { name: /Compare/i })[0]!);
 
     const confirm = await screen.findByRole("button", {
       name: /Compare 2 selected/i,
     });
-    // Initially disabled (no rows checked).
     expect(confirm).toBeDisabled();
 
-    // Check the first row by clicking it.
     fireEvent.click(screen.getAllByText("First")[0]!);
     expect(confirm).toBeDisabled();
 
-    // Check the second row.
     fireEvent.click(screen.getAllByText("Second")[0]!);
     expect(confirm).not.toBeDisabled();
 
-    // The third check should be ignored (max 2).
     fireEvent.click(screen.getAllByText("Third")[0]!);
     expect(confirm).not.toBeDisabled();
   });
@@ -782,12 +758,6 @@ describe("AdvisorPage — compare mode rail", () => {
       makeExplorationListItem({ id: "b", title: "Second" }),
     ];
 
-    // The error is rendered inline in the rail under the Compare-mode
-    // buttons (so both the lg rail and the phone compare picker surface
-    // it the same way). At lg the page stays on the rail-aside layout,
-    // so we don't need to force a phone viewport here.
-    setupSearchParams();
-
     setupMocks(items, makeExplorationDetail({ id: "a", title: "First" }));
 
     const { ApiError } = await import("@/lib/api/errors");
@@ -797,14 +767,10 @@ describe("AdvisorPage — compare mode rail", () => {
 
     render(<AdvisorPage />);
 
-    // Wait for the rail to render before clicking.
     await screen.findByLabelText("Explorations");
 
-    // Enter compare mode via the rail's Compare toggle.
     fireEvent.click(screen.getByRole("button", { name: /^Compare$/ }));
 
-    // Find the rail rows via DOM querySelector so we don't collide
-    // with workspace elements (e.g. the "First" title h1).
     function railRow(title: string): HTMLButtonElement {
       const aside = document.querySelector(
         'aside[aria-label="Explorations"]',
@@ -832,6 +798,118 @@ describe("AdvisorPage — compare mode rail", () => {
       ).toBeInTheDocument();
     });
   });
+
+  // Fix 3 (compare-error clearing): Cancel clears the error.
+  it("clears the compare error when Cancel is clicked after a failed submit", async () => {
+    const items = [
+      makeExplorationListItem({ id: "a", title: "First" }),
+      makeExplorationListItem({ id: "b", title: "Second" }),
+    ];
+    setupMocks(items, makeExplorationDetail({ id: "a", title: "First" }));
+
+    const { ApiError } = await import("@/lib/api/errors");
+    vi.mocked(createComparison).mockRejectedValue(
+      new ApiError("exploration_has_no_summary", "No summary yet", 422),
+    );
+
+    render(<AdvisorPage />);
+
+    await screen.findByLabelText("Explorations");
+
+    fireEvent.click(screen.getByRole("button", { name: /^Compare$/ }));
+
+    function railRow(title: string): HTMLButtonElement {
+      const aside = document.querySelector(
+        'aside[aria-label="Explorations"]',
+      )!;
+      const listArea = aside.querySelector('div.mt-1.flex.flex-col.gap-2')!;
+      const rows = Array.from(
+        listArea.querySelectorAll<HTMLButtonElement>('button'),
+      );
+      const row = rows.find((b) => b.textContent?.includes(title));
+      if (!row) throw new Error(`No rail row for "${title}"`);
+      return row;
+    }
+
+    fireEvent.click(railRow("First"));
+    fireEvent.click(railRow("Second"));
+    const confirm = await screen.findByRole("button", {
+      name: /Compare 2 selected/i,
+    });
+    fireEvent.click(confirm);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Both explorations need a summary first\./),
+      ).toBeInTheDocument();
+    });
+
+    // Click Cancel — the error text must be gone.
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => {
+      expect(
+        screen.queryByText(/Both explorations need a summary first\./),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  // Fix 3 (compare-error clearing): changing a checkbox clears the error.
+  it("clears the compare error when the user toggles a checkbox after a failed submit", async () => {
+    const items = [
+      makeExplorationListItem({ id: "a", title: "First" }),
+      makeExplorationListItem({ id: "b", title: "Second" }),
+      makeExplorationListItem({ id: "c", title: "Third" }),
+    ];
+    setupMocks(items, makeExplorationDetail({ id: "a", title: "First" }));
+
+    const { ApiError } = await import("@/lib/api/errors");
+    vi.mocked(createComparison).mockRejectedValue(
+      new ApiError("exploration_has_no_summary", "No summary yet", 422),
+    );
+
+    render(<AdvisorPage />);
+
+    await screen.findByLabelText("Explorations");
+
+    fireEvent.click(screen.getByRole("button", { name: /^Compare$/ }));
+
+    function railRow(title: string): HTMLButtonElement {
+      const aside = document.querySelector(
+        'aside[aria-label="Explorations"]',
+      )!;
+      const listArea = aside.querySelector('div.mt-1.flex.flex-col.gap-2')!;
+      const rows = Array.from(
+        listArea.querySelectorAll<HTMLButtonElement>('button'),
+      );
+      const row = rows.find((b) => b.textContent?.includes(title));
+      if (!row) throw new Error(`No rail row for "${title}"`);
+      return row;
+    }
+
+    fireEvent.click(railRow("First"));
+    fireEvent.click(railRow("Second"));
+    const confirm = await screen.findByRole("button", {
+      name: /Compare 2 selected/i,
+    });
+    fireEvent.click(confirm);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Both explorations need a summary first\./),
+      ).toBeInTheDocument();
+    });
+
+    // Toggle a checkbox — the error must clear immediately.
+    fireEvent.click(railRow("First"));
+    await waitFor(() => {
+      expect(
+        screen.queryByText(/Both explorations need a summary first\./),
+      ).not.toBeInTheDocument();
+    });
+    // The Compare button is now disabled again because toggling off
+    // "First" leaves only "Second" checked.
+    expect(confirm).toBeDisabled();
+  });
 });
 
 describe("AdvisorPage — limit banner", () => {
@@ -852,7 +930,6 @@ describe("AdvisorPage — limit banner", () => {
         screen.getByText(/You have 20 explorations\. Delete one/),
       ).toBeInTheDocument();
     });
-    // New exploration button is disabled at the cap.
     expect(
       screen.getAllByRole("button", { name: /New exploration/i })[0],
     ).toBeDisabled();
@@ -891,10 +968,6 @@ describe("AdvisorPage — title row", () => {
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "Titled" })).toBeInTheDocument();
     });
-    // The sub-line splits the "Started …" prefix and "Summary version N"
-// across separate <span> nodes with a separator span between them.
-// We assert on each half independently — first the "Started 12 Sep"
-    // prefix, then the "Summary version 2" suffix.
     expect(screen.getByText(/Started 12 Sep/)).toBeInTheDocument();
     expect(screen.getByText(/Summary version 2/)).toBeInTheDocument();
   });
@@ -994,11 +1067,9 @@ describe("AdvisorPage — tabs (below xl)", () => {
     const conversationTab = screen.getByRole("tab", { name: "Conversation" });
     const summaryTab = screen.getByRole("tab", { name: "Summary" });
 
-    // Conversation tab starts active.
     expect(conversationTab).toHaveAttribute("aria-selected", "true");
     expect(summaryTab).toHaveAttribute("aria-selected", "false");
 
-    // Switch to Summary.
     fireEvent.click(summaryTab);
     expect(summaryTab).toHaveAttribute("aria-selected", "true");
     expect(conversationTab).toHaveAttribute("aria-selected", "false");
@@ -1008,7 +1079,6 @@ describe("AdvisorPage — tabs (below xl)", () => {
       ).toBeInTheDocument();
     });
 
-    // Back to Conversation.
     fireEvent.click(conversationTab);
     expect(conversationTab).toHaveAttribute("aria-selected", "true");
   });
@@ -1047,7 +1117,6 @@ describe("AdvisorPage — A2 phone layout (390px)", () => {
 
     render(<AdvisorPage />);
 
-    // The phone-list heading + the rail are visible.
     await waitFor(() => {
       expect(
         screen.getByRole("heading", { name: "Advisor" }),
@@ -1056,10 +1125,7 @@ describe("AdvisorPage — A2 phone layout (390px)", () => {
     expect(
       screen.getByText(/One exploration for each direction\./i),
     ).toBeInTheDocument();
-    // The rail renders.
     expect(screen.getByLabelText("Explorations")).toBeInTheDocument();
-    // The detail workspace is NOT rendered — there's no back link, no
-    // conversation/summary, no title-row actions.
     expect(
       screen.queryByRole("button", { name: "Explorations" }),
     ).not.toBeInTheDocument();
@@ -1087,20 +1153,14 @@ describe("AdvisorPage — A2 phone layout (390px)", () => {
 
     render(<AdvisorPage />);
 
-    // Wait for the detail heading to render — that confirms the page
-    // has finished fetching the exploration (the back link can appear
-    // earlier, the moment the URL param is read, while the detail
-    // fetch is still in flight).
     await waitFor(() => {
       expect(
         screen.getByRole("heading", { name: "PhoneDetail" }),
       ).toBeInTheDocument();
     });
-    // The back link is the only navigation on the phone-detail screen.
     expect(
       screen.getByRole("button", { name: "Explorations" }),
     ).toBeInTheDocument();
-    // The rail is NOT rendered (mutual exclusion with the workspace).
     expect(screen.queryByLabelText("Explorations")).not.toBeInTheDocument();
   });
 
@@ -1131,8 +1191,6 @@ describe("AdvisorPage — A2 phone layout (390px)", () => {
         screen.getByRole("button", { name: "Explorations" }),
       ).toBeInTheDocument();
     });
-    // Clear the search-params state BEFORE clicking so the mock router
-    // has the cleanest possible post-click URL to assert on.
     routerReplaceMock.mockClear();
     fireEvent.click(screen.getByRole("button", { name: "Explorations" }));
     await waitFor(() => {
@@ -1140,7 +1198,6 @@ describe("AdvisorPage — A2 phone layout (390px)", () => {
     });
     const callArg = routerReplaceMock.mock.calls[0]?.[0] as string;
     expect(callArg).not.toMatch(/exploration=/);
-    // The rail is back.
     await waitFor(() => {
       expect(screen.getByLabelText("Explorations")).toBeInTheDocument();
     });
@@ -1151,14 +1208,11 @@ describe("AdvisorPage — A3 auto-create only on the first empty list", () => {
   it("does NOT re-trigger auto-create when the user deletes the last exploration", async () => {
     setViewport(false);
     setupSession();
-    // First list response: empty (the page auto-creates one).
     vi.mocked(listExplorations)
       .mockResolvedValueOnce([])
-      // Second list response (post-auto-create refetch): the new row.
       .mockResolvedValueOnce([
         makeExplorationListItem({ id: "fresh", title: "New exploration" }),
       ])
-      // Third list response (post-delete refetch): empty AGAIN.
       .mockResolvedValueOnce([]);
     vi.mocked(createExploration).mockResolvedValue({
       id: "fresh",
@@ -1167,39 +1221,380 @@ describe("AdvisorPage — A3 auto-create only on the first empty list", () => {
 
     render(<AdvisorPage />);
 
-    // Auto-create fires exactly once (StrictMode-safe via the ref guard).
     await waitFor(() => {
       expect(createExploration).toHaveBeenCalledTimes(1);
     });
     expect(createExploration).toHaveBeenCalledTimes(1);
 
-    // Verify the guard by checking that subsequent empty lists do NOT
-    // re-fire createExploration — wait through several list refetches
-    // and assert the call count stays at 1.
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(createExploration).toHaveBeenCalledTimes(1);
   });
 });
 
-describe("AdvisorPage — A4 list refetch on terminal status", () => {
-  it("refetches the list when the selected exploration's status flips Working → Idle", async () => {
+// --------------------------------------------------------------------
+// STOR-40 follow-up — Fix 4 missing tests
+// --------------------------------------------------------------------
+
+describe("AdvisorPage — row click changes selection (follow-up)", () => {
+  it("clicking a second row changes the h1, sets aria-current on that row only, and the URL param equals that id", async () => {
+    const items = [
+      makeExplorationListItem({ id: "a", title: "Alpha" }),
+      makeExplorationListItem({ id: "b", title: "Beta" }),
+    ];
+    setupMocks(items, makeExplorationDetail({ id: "a", title: "Alpha" }));
+
+    render(<AdvisorPage />);
+
+    // First row starts as the auto-selected detail.
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Alpha" })).toBeInTheDocument();
+    });
+
+    const alphaRow = screen.getByRole("button", { name: /Alpha/ });
+    const betaRow = screen.getByRole("button", { name: /Beta/ });
+    expect(alphaRow).toHaveAttribute("aria-current", "true");
+    expect(betaRow).not.toHaveAttribute("aria-current");
+
+    // Click Beta. After the URL store notifies the page, the h1 must
+    // flip to "Beta", the URL param equals "b", and aria-current moves.
+    fireEvent.click(betaRow);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Beta" })).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: /Beta/ })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: /Alpha/ })).not.toHaveAttribute(
+      "aria-current",
+    );
+    // The last router.replace call must have set ?exploration=b.
+    expect(routerReplaceMock).toHaveBeenLastCalledWith(
+      expect.stringContaining("exploration=b"),
+      expect.anything(),
+    );
+  });
+});
+
+describe("AdvisorPage — New exploration from a populated list (follow-up)", () => {
+  it("'New exploration' from a populated list: createExploration is called once and the URL param becomes the new id", async () => {
+    const items = [
+      makeExplorationListItem({ id: "a", title: "First" }),
+      makeExplorationListItem({ id: "b", title: "Second" }),
+    ];
+    setupMocks(items, makeExplorationDetail({ id: "a", title: "First" }));
+    vi.mocked(createExploration).mockResolvedValue({
+      id: "expl-new",
+      status: "Working",
+    });
+
+    render(<AdvisorPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "First" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getAllByRole("button", { name: /New exploration/i })[0]!);
+
+    await waitFor(() => {
+      expect(createExploration).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(routerReplaceMock).toHaveBeenLastCalledWith(
+        expect.stringContaining("exploration=expl-new"),
+        expect.anything(),
+      );
+    });
+    // The URL store reflects the new id (the page reads it on the next
+    // render and the new exploration becomes the selected detail).
+    expect(hoisted.urlStore.params.get("exploration")).toBe("expl-new");
+  });
+});
+
+describe("AdvisorPage — unknown ?exploration=<id> (follow-up)", () => {
+  it("desktop (lg) with unknown ?exploration=zzz: the first item is selected and router.replace is called 0 times (no loop)", async () => {
+    setupSession();
+    setupSearchParams({ exploration: "zzz" });
+    const items = [
+      makeExplorationListItem({ id: "a", title: "Alpha" }),
+      makeExplorationListItem({ id: "b", title: "Beta" }),
+    ];
+    setupMocks(items, null);
+
+    render(<AdvisorPage />);
+
+    // The first item auto-selects on lg when the param doesn't match.
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Alpha" })).toBeInTheDocument();
+    });
+
+    // Wait for any loops to fire and assert router.replace was never called.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(routerReplaceMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("AdvisorPage — browser back (follow-up)", () => {
+  it("after selecting item B, calling setUrlFromOutside('exploration=a') inside act selects item A", async () => {
+    const items = [
+      makeExplorationListItem({ id: "a", title: "Alpha" }),
+      makeExplorationListItem({ id: "b", title: "Beta" }),
+    ];
+    setupMocks(items, makeExplorationDetail({ id: "a", title: "Alpha" }));
+
+    render(<AdvisorPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Alpha" })).toBeInTheDocument();
+    });
+
+    // Select Beta via a click → URL becomes ?exploration=b.
+    fireEvent.click(screen.getByRole("button", { name: /Beta/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Beta" })).toBeInTheDocument();
+    });
+    expect(hoisted.urlStore.params.get("exploration")).toBe("b");
+
+    // Browser-back: the URL store is replaced from outside the React
+    // tree. The page must react to the new URL and re-select Alpha.
+    act(() => {
+      setUrlFromOutside("exploration=a");
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Alpha" })).toBeInTheDocument();
+    });
+    expect(hoisted.urlStore.params.get("exploration")).toBe("a");
+  });
+});
+
+describe("AdvisorPage — desktop mount with 3 items and no param (follow-up)", () => {
+  it("the first item is selected and router.replace is called 0 times", async () => {
+    const items = [
+      makeExplorationListItem({ id: "a", title: "Alpha" }),
+      makeExplorationListItem({ id: "b", title: "Beta" }),
+      makeExplorationListItem({ id: "c", title: "Gamma" }),
+    ];
+    setupMocks(items, makeExplorationDetail({ id: "a", title: "Alpha" }));
+
+    render(<AdvisorPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Alpha" })).toBeInTheDocument();
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(routerReplaceMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("AdvisorPage — StrictMode auto-create (follow-up)", () => {
+  it("first list response empty under <StrictMode> fires exactly ONE createExploration call", async () => {
+    setupSession();
+    vi.mocked(listExplorations).mockResolvedValue([]);
+    vi.mocked(createExploration).mockResolvedValue({
+      id: "expl-new",
+      status: "Working",
+    });
+
+    render(
+      <StrictMode>
+        <AdvisorPage />
+      </StrictMode>,
+    );
+
+    await waitFor(() => {
+      expect(createExploration).toHaveBeenCalledTimes(1);
+    });
+    // Hold a moment longer — the StrictMode double-mount would have
+    // fired the second create call by now if the ref guard were broken.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(createExploration).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("AdvisorPage — delete-the-last-exploration path (follow-up)", () => {
+  it("non-empty first response, delete the last exploration: 'No explorations yet' shows and createExploration is NOT called", async () => {
+    setViewport(false);
+    // Phone layout: the URL param drives which screen renders, so we
+    // need ?exploration=a for the detail screen to show "Doomed".
+    setupSearchParams({ exploration: "a" });
+    const detail = makeExplorationDetail({ id: "a", title: "Doomed" });
+    const initialList = [makeExplorationListItem({ id: "a", title: "Doomed" })];
+    setupMocks(initialList, detail);
+    // After setupMocks the default for `listExplorations` is the
+    // initial 1-item list. We need:
+    //   Call 1 (mount):       initial 1-item list
+    //   Call 2 (post-delete): empty list
+    //   Call 3+ (after):      empty list
+    // Vitest's once-shot queue is FIFO — the first response queued
+    // is consumed on the first call. So we queue the initial 1-item
+    // list first (consumed on Call 1) and the empty post-delete
+    // response second (consumed on Call 2). The new default ([])
+    // takes over for Call 3+.
+    vi.mocked(listExplorations).mockResolvedValueOnce(initialList);
+    vi.mocked(listExplorations).mockResolvedValueOnce([]);
+    vi.mocked(listExplorations).mockResolvedValue([]);
+
+    render(<AdvisorPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Doomed" })).toBeInTheDocument();
+    });
+
+    // Confirm the delete — the dialog appears and the click resolves it.
+    fireEvent.click(screen.getByRole("button", { name: "Delete exploration" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("No explorations yet")).toBeInTheDocument();
+    });
+    expect(createExploration).not.toHaveBeenCalled();
+
+    // Click the empty-state card's "New exploration" button to make
+    // sure it still creates one — this is the explicit user path.
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /New exploration/i })[0]!,
+    );
+    await waitFor(() => {
+      expect(createExploration).toHaveBeenCalledTimes(1);
+    });
+  });
+});
+
+describe("AdvisorPage — delete on desktop with items remaining (follow-up)", () => {
+  it("after delete, the URL param is removed and the first remaining item is selected", async () => {
+    setupSession();
+    setupSearchParams({ exploration: "a" });
+    const initialItems = [
+      makeExplorationListItem({ id: "a", title: "Doomed" }),
+      makeExplorationListItem({ id: "b", title: "Survivor" }),
+    ];
+    const postDeleteItems = [
+      makeExplorationListItem({ id: "b", title: "Survivor" }),
+    ];
+    setupMocks(
+      initialItems,
+      makeExplorationDetail({ id: "a", title: "Doomed" }),
+    );
+    // Override the list mock AFTER setupMocks. setupMocks sets the
+    // default to `initialItems`. We need:
+    //   Call 1 (mount):       initialItems
+    //   Call 2 (post-delete): postDeleteItems
+    //   Call 3+ (after):      postDeleteItems
+    // Vitest's once-shot queue is FIFO — the first response queued
+    // is consumed on the first call. So we queue `initialItems`
+    // first (consumed on Call 1) and `postDeleteItems` second
+    // (consumed on Call 2). The new default (`postDeleteItems`)
+    // takes over for Call 3+.
+    vi.mocked(listExplorations).mockResolvedValueOnce(initialItems);
+    vi.mocked(listExplorations).mockResolvedValueOnce(postDeleteItems);
+    vi.mocked(listExplorations).mockResolvedValue(postDeleteItems);
+
+    render(<AdvisorPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Doomed" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete exploration" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(deleteExploration).toHaveBeenCalledWith("a", ACCESS_TOKEN);
+    });
+    // URL is cleared of the deleted id.
+    await waitFor(() => {
+      expect(hoisted.urlStore.params.get("exploration")).toBeNull();
+    });
+    // The first remaining item (Survivor) becomes the selected detail
+    // via the lg-only fallback.
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Survivor" })).toBeInTheDocument();
+    });
+  });
+});
+
+describe("AdvisorPage — A4 list poll with fake timers (follow-up)", () => {
+  // Replace the real-time 4 s polling test with a fake-timer version so
+  // the whole suite finishes in seconds. Only the interval functions
+  // are faked — promises and testing-library APIs still work normally.
+  it("rail row title + 'Updated' meta refresh when a Working row becomes Idle", async () => {
+    vi.useFakeTimers({
+      toFake: ["setInterval", "clearInterval"],
+    });
+    setupSession();
+    vi.mocked(listExplorations)
+      // Initial list response: Working row.
+      .mockResolvedValueOnce([
+        makeExplorationListItem({ id: "a", title: "Original", status: "Working" }),
+      ])
+      // Next poll: row is now Idle with a new title and meta.
+      .mockResolvedValueOnce([
+        makeExplorationListItem({
+          id: "a",
+          title: "Refreshed",
+          status: "Idle",
+          updatedAt: "2026-09-19T15:55:00Z",
+        }),
+      ])
+      // Subsequent polls: nothing changed. The page must stop calling
+      // listExplorations because no row is Working anymore.
+      .mockResolvedValue([
+        makeExplorationListItem({
+          id: "a",
+          title: "Refreshed",
+          status: "Idle",
+          updatedAt: "2026-09-19T15:55:00Z",
+        }),
+      ]);
+
+    render(<AdvisorPage />);
+
+    // Wait for the initial list render.
+    await waitFor(() => {
+      expect(screen.getAllByText("Original").length).toBeGreaterThanOrEqual(1);
+    });
+
+    // Advance the 4 s poll interval. We await act() so the promise the
+    // mock returns flushes before assertions run.
+    await act(async () => {
+      vi.advanceTimersByTime(4000);
+    });
+
+    // The new title + a 5-minute-old "Updated" meta appears on the row.
+    await waitFor(() => {
+      expect(screen.getAllByText("Refreshed").length).toBeGreaterThanOrEqual(1);
+    });
+    expect(screen.getAllByText(/Updated.*ago/i).length).toBeGreaterThanOrEqual(1);
+
+    // Advance another 8 s — two more poll ticks. No row is Working, so
+    // the list-poll effect must have cleared the interval.
+    await act(async () => {
+      vi.advanceTimersByTime(8000);
+    });
+
+    // Count the listExplorations calls. The initial fetch is 1, the
+    // post-poll refresh is 2. After polling stops there should be no
+    // further calls.
+    expect(vi.mocked(listExplorations).mock.calls.length).toBe(2);
+  });
+
+  it("A4 — terminal-transition effect refetches the list (fake timers)", async () => {
+    vi.useFakeTimers({
+      toFake: ["setInterval", "clearInterval"],
+    });
     setupSession();
     const items = [makeExplorationListItem({ id: "a", title: "Polling", status: "Working" })];
-    // First list response: Working. Subsequent responses: Idle.
     vi.mocked(listExplorations)
       .mockResolvedValueOnce(items)
       .mockResolvedValue([
         makeExplorationListItem({ id: "a", title: "Polling", status: "Idle" }),
       ]);
-    // Detail endpoint: queue a Working response, then switch the default
-    // to Idle. The page's detail-polling interval (4000 ms) picks up
-    // the new status on its first tick.
+    // First detail response: Working. Subsequent: Idle.
     vi.mocked(getExploration).mockResolvedValueOnce(
-      makeExplorationDetail({
-        id: "a",
-        title: "Polling",
-        status: "Working",
-      }),
+      makeExplorationDetail({ id: "a", title: "Polling", status: "Working" }),
     );
     vi.mocked(getExploration).mockResolvedValue(
       makeExplorationDetail({ id: "a", title: "Polling", status: "Idle" }),
@@ -1207,34 +1602,94 @@ describe("AdvisorPage — A4 list refetch on terminal status", () => {
 
     render(<AdvisorPage />);
 
-    // Initial fetch chain (list + detail).
     await waitFor(() => {
       expect(getExploration).toHaveBeenCalledTimes(1);
     });
-    expect(listExplorations).toHaveBeenCalledTimes(1);
 
-    // Wait for the page's polling interval to tick once. The first
-    // queued response was Working (consumed above); the new default
-    // returns Idle, so the page's terminal-transition effect bumps the
-    // list version and refetches the rail.
-    await new Promise((resolve) => setTimeout(resolve, 4100));
-
-    // At least one polling tick has fired and the terminal-transition
-    // effect has triggered a list refetch — the exact count varies
-    // because the page's effect dependencies can re-run (lg fallback
-    // re-resolves the selectedId, etc.), so we assert on the lower
-    // bound instead of equality.
-    await waitFor(() => {
-      expect(vi.mocked(getExploration).mock.calls.length).toBeGreaterThanOrEqual(2);
+    // Advance 4 s — the detail poll picks up Idle and the terminal-
+    // transition effect bumps listVersion, triggering a second list
+    // fetch.
+    await act(async () => {
+      vi.advanceTimersByTime(4000);
     });
-    expect(vi.mocked(listExplorations).mock.calls.length).toBeGreaterThanOrEqual(2);
-  }, 15_000);
+
+    await waitFor(() => {
+      expect(vi.mocked(listExplorations).mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+    expect(vi.mocked(getExploration).mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
 });
 
-afterEach(() => {
-  if (originalMatchMedia) {
-    window.matchMedia = originalMatchMedia;
-    originalMatchMedia = null;
-  }
+describe("AdvisorPage — opening an already-Idle exploration does NOT refetch the list (cleanup)", () => {
+  it("selecting an Idle exploration does not bump listVersion (no extra list call)", async () => {
+    setupSession();
+    const items = [
+      makeExplorationListItem({ id: "a", title: "Alpha", status: "Idle" }),
+      makeExplorationListItem({ id: "b", title: "Beta", status: "Idle" }),
+    ];
+    setupMocks(items, makeExplorationDetail({ id: "a", title: "Alpha", status: "Idle" }));
+
+    render(<AdvisorPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Alpha" })).toBeInTheDocument();
+    });
+
+    const callsAfterMount = vi.mocked(listExplorations).mock.calls.length;
+
+    // Click Beta. The selected detail becomes Beta — already Idle, so
+    // no terminal-transition effect should fire.
+    fireEvent.click(screen.getByRole("button", { name: /Beta/ }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Beta" })).toBeInTheDocument();
+    });
+
+    // Allow any pending refetches to fire.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(vi.mocked(listExplorations).mock.calls.length).toBe(callsAfterMount);
+  });
 });
 
+describe("AdvisorPage — phone Refresh button width (follow-up Fix 2)", () => {
+  it("on phone (?exploration=a) the Refresh button is not full width and shares its row with the icon buttons", async () => {
+    setViewport(false);
+    setupSearchParams({ exploration: "a" });
+    const items = [makeExplorationListItem({ id: "a", title: "PhoneDetail" })];
+    const detail = makeExplorationDetail({
+      id: "a",
+      title: "PhoneDetail",
+      status: "Idle",
+      messages: [
+        {
+          id: "m-student",
+          role: "Student",
+          content: "Hi",
+          questions: [],
+          createdAt: "2026-09-19T15:00:00Z",
+        },
+      ],
+    });
+    setupMocks(items, detail);
+
+    render(<AdvisorPage />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: "PhoneDetail" }),
+      ).toBeInTheDocument();
+    });
+
+    const refresh = screen.getByRole("button", { name: "Refresh" });
+    const rename = screen.getByRole("button", { name: "Rename exploration" });
+    const del = screen.getByRole("button", { name: "Delete exploration" });
+
+    // The Refresh button class must NOT contain the full-width utility.
+    expect(refresh.className).not.toMatch(/\bw-full\b/);
+    // The three buttons must share an immediate flex parent so the
+    // phone row can keep them inside the viewport.
+    const refreshParent = refresh.parentElement!;
+    expect(refreshParent).toBe(rename.parentElement);
+    expect(refreshParent).toBe(del.parentElement);
+  });
+});

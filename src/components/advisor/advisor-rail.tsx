@@ -36,8 +36,10 @@ interface AdvisorRailProps {
     secondId: string;
   }) => void;
   /** Called with the friendly error message so the page can render an
-   *  inline alert under the rail's buttons. */
-  onCompareError?: (message: string) => void;
+   *  inline alert under the rail's buttons. Pass `null` to clear the
+   *  current error — used by the rail when its picked selections change
+   *  or when the user enters compare mode. */
+  onCompareError?: (message: string | null) => void;
   /** Last compare-error the page owns — surfaced inline at the top of
    *  the rail while `compareMode` is on, so users see why a compare
    *  submission failed without leaving the picker. Cleared automatically
@@ -92,6 +94,10 @@ export function AdvisorRail({
       if (prev.length >= 2) return prev;
       return [...prev, id];
     });
+    // Any change of the picked explorations clears the last compare
+    // error so a stale "Both explorations need a summary first." no
+    // longer follows the user's new pick.
+    onCompareError?.(null);
   }
 
   async function handleConfirm() {
@@ -123,11 +129,16 @@ export function AdvisorRail({
   function handleCancel() {
     setCompareMode(false);
     setSelectedIds([]);
+    // Cancel clears any prior compare error so re-entering compare mode
+    // doesn't show "Both explorations need a summary first." again.
+    onCompareError?.(null);
   }
 
   function handleEnterCompare() {
     setCompareMode(true);
     setSelectedIds([]);
+    // Entering compare mode always starts with no error.
+    onCompareError?.(null);
   }
 
   return (

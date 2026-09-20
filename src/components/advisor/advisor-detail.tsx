@@ -271,9 +271,12 @@ function DetailHeader({
 
       {/* Phone-only actions row, sits BELOW the sub-line per the spec.
           Renders the rename pencil as a 36×36 icon button so the inline
-          line-1 pencil can stay hidden on small viewports. */}
+          line-1 pencil can stay hidden on small viewports. `min-w-0` on
+          the row lets the Refresh button shrink when the rename + delete
+          icon buttons consume the available width on narrow viewports
+          (~500 px) without pushing the row off-screen. */}
       {!isLg && (
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           {!isFirstVisit && (
             <HeaderRefreshButton onRefresh={onRefresh} disabled={isWorking} />
           )}
@@ -311,7 +314,7 @@ function HeaderRefreshButton({
       variant="outline"
       onClick={onRefresh}
       disabled={disabled}
-      className="h-9 justify-center rounded-[10px] px-3.5 text-sm font-semibold gap-2 lg:w-auto w-full"
+      className="h-9 w-auto shrink-0 justify-center rounded-[10px] px-3.5 text-sm font-semibold gap-2"
     >
       <RefreshCw className="size-4" />
       Refresh
