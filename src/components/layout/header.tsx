@@ -55,6 +55,9 @@ export function Header() {
   const isSignedIn = status === "authenticated" && !session?.error;
   const isAdministrator = session?.actorType === "Administrator";
   const isStudent = session?.actorType === "Student";
+  // STOR-43 Phase 4 — Organization gets its own single-link nav,
+  // mirroring the Student nav's role gating.
+  const isOrganization = session?.actorType === "Organization";
 
   const isDashboardActive = pathname === "/dashboard";
   const isPortfolioActive = pathname === "/dashboard/portfolio";
@@ -65,6 +68,10 @@ export function Header() {
   // so the nav link stays highlighted if the route grows sub-paths later.
   const isVisibilityActive =
     pathname?.startsWith("/dashboard/visibility") ?? false;
+  // STOR-43 Phase 4 — single-link employer nav; `startsWith` so any
+  // future employer sub-routes keep the active state.
+  const isEmployerSearchActive =
+    pathname?.startsWith("/employer/search") ?? false;
 
   async function handleLogout() {
     setMenuOpen(false);
@@ -123,6 +130,14 @@ export function Header() {
           />
         </div>
       )}
+      {isOrganization && (
+        <div className="border-b border-border/60 px-2.5 md:hidden">
+          <EmployerNav
+            className="flex items-center gap-1"
+            isSearchActive={isEmployerSearchActive}
+          />
+        </div>
+      )}
 
       {/* md+ layout: single row containing wordmark, nav, account. */}
       <div className="hidden w-full items-center justify-between px-4 py-3 sm:px-6 md:flex">
@@ -137,6 +152,12 @@ export function Header() {
               isPortfolioActive={isPortfolioActive}
               isAdvisorActive={isAdvisorActive}
               isVisibilityActive={isVisibilityActive}
+            />
+          )}
+          {isOrganization && (
+            <EmployerNav
+              className="flex items-center gap-1"
+              isSearchActive={isEmployerSearchActive}
             />
           )}
         </div>
@@ -319,5 +340,38 @@ function StudentNavLink({
     >
       {children}
     </Link>
+  );
+}
+
+/**
+ * Organization-only nav links rendered between the wordmark and the
+ * account menu. Mirrors `StudentNav`'s active/hover styling so the two
+ * navs read as the same component family — same `StudentNavLink`-
+ * shaped link classes, same aria-current="page" treatment, same
+ * focus-visible ring. Currently a single "Search" link to the
+ * employer search page; future employer surfaces (saved searches,
+ * employer account, etc.) would slot in here.
+ *
+ * Exported (rather than kept module-local) so the header test suite
+ * can assert the "Search" link appears with `aria-current="page"` at
+ * /employer/search without having to mock the full `Header` (which
+ * pulls `useSession`, `signOut`, `useRouter`, `usePathname`, etc.).
+ */
+export function EmployerNav({
+  className,
+  isSearchActive,
+}: {
+  className?: string;
+  isSearchActive: boolean;
+}) {
+  return (
+    <nav
+      aria-label="Employer navigation"
+      className={className ?? "flex items-center gap-1"}
+    >
+      <StudentNavLink href="/employer/search" active={isSearchActive}>
+        Search
+      </StudentNavLink>
+    </nav>
   );
 }

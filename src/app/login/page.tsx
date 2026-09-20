@@ -15,12 +15,29 @@ import { describeOtpRequestError, describeOtpVerifyError } from "@/lib/api/auth-
 import { ApiError } from "@/lib/api/errors";
 
 const RESEND_WINDOW_SECONDS = 60;
-const LANDING_ROUTE = "/account";
+// STOR-43 Phase 4 — Organizations land on the new talent-search page
+// right after sign-in. Every other actor type (Students in particular)
+// keeps the original /account landing. The landing is decided per
+// successful AuthResult by `landingRouteForActorType` below.
+const DEFAULT_LANDING_ROUTE = "/account";
+const ORGANIZATION_LANDING_ROUTE = "/employer/search";
 
 type Step = "email" | "code" | "actorType";
 
 function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+/** Map a verified/finalized AuthResult's `actorType` to the page the
+ *  user lands on after sign-in. Organizations go straight to the new
+ *  talent-search surface so the empty-state example chips greet them
+ *  on first sign-in; everyone else (Students most importantly) keeps
+ *  the existing /account landing. Unknown / future actor types fall
+ *  through to /account so we never accidentally bounce a brand-new
+ *  user out of the app. */
+function landingRouteForActorType(actorType: string): string {
+  if (actorType === "Organization") return ORGANIZATION_LANDING_ROUTE;
+  return DEFAULT_LANDING_ROUTE;
 }
 
 async function establishSession(auth: {
@@ -125,7 +142,7 @@ export default function LoginPage() {
     try {
       const result = await verifyOtp({ email, code });
       await establishSession(result);
-      router.push(LANDING_ROUTE);
+      router.push(landingRouteForActorType(result.actorType));
       router.refresh();
     } catch (error) {
       if (error instanceof ApiError && error.errorCode === "actor_type_required") {
@@ -144,6 +161,7 @@ export default function LoginPage() {
     setFinalizeError(null);
     setIsSubmitting(true);
     try {
+      let resultActorType: string = selectedActorType;
       if (isGoogleFlow) {
         if (!session?.pendingGoogleIdToken) {
           setFinalizeError("Your Google sign-in expired. Start again.");
@@ -151,14 +169,16 @@ export default function LoginPage() {
         }
         const result = await googleLogin({ idToken: session.pendingGoogleIdToken, actorType: selectedActorType });
         await establishSession(result);
+        resultActorType = result.actorType;
       } else {
         // Resubmits the exact same email + code, now with the chosen actor
         // type — the code is still valid and no attempt was spent on the
         // earlier `actor_type_required` response (see lib/api/auth.ts).
         const result = await verifyOtp({ email, code, actorType: selectedActorType });
         await establishSession(result);
+        resultActorType = result.actorType;
       }
-      router.push(LANDING_ROUTE);
+      router.push(landingRouteForActorType(resultActorType));
       router.refresh();
     } catch (error) {
       if (error instanceof ApiError) {
