@@ -58,6 +58,9 @@ export function Header() {
 
   const isDashboardActive = pathname === "/dashboard";
   const isPortfolioActive = pathname === "/dashboard/portfolio";
+  // `startsWith` (not `===`) so deep links to sub-routes (e.g. the advisor
+  // comparison screen) keep the "Advisor" nav link highlighted.
+  const isAdvisorActive = pathname?.startsWith("/dashboard/advisor") ?? false;
 
   async function handleLogout() {
     setMenuOpen(false);
@@ -75,75 +78,168 @@ export function Header() {
   }
 
   return (
-    <header className="flex w-full items-center justify-between border-b border-border/60 px-4 py-3 sm:px-6">
-      <div className="flex items-center gap-6">
+    <header className="border-b border-border/60">
+      {/* Phone (below md): two rows — wordmark+account on row 1,
+          three student-nav links on row 2. At md+ this collapses
+          into a single row with the nav + account on either side of
+          the wordmark, exactly as before. */}
+      <div className="flex items-center justify-between px-4 pb-2 pt-3 md:hidden">
         <Link href="/" aria-label="Storporate home">
           <Wordmark />
         </Link>
-        {isStudent && <StudentNav isDashboardActive={isDashboardActive} isPortfolioActive={isPortfolioActive} />}
+        {status === "loading" ? (
+          <div
+            className="h-8 w-20 animate-pulse rounded-full bg-muted"
+            aria-hidden
+          />
+        ) : isSignedIn && session ? (
+          <AccountMenu
+            session={session}
+            menuOpen={menuOpen}
+            setMenuOpen={setMenuOpen}
+            menuRef={menuRef}
+            isAdministrator={isAdministrator}
+            onLogout={handleLogout}
+            compact
+          />
+        ) : (
+          <Button asChild size="sm">
+            <Link href="/login">Continue</Link>
+          </Button>
+        )}
       </div>
+      {isStudent && (
+        <div className="border-b border-border/60 px-2.5 md:hidden">
+          <StudentNav
+            className="flex items-center gap-1"
+            isDashboardActive={isDashboardActive}
+            isPortfolioActive={isPortfolioActive}
+            isAdvisorActive={isAdvisorActive}
+          />
+        </div>
+      )}
 
-      {status === "loading" ? (
-        <div className="h-8 w-20 animate-pulse rounded-full bg-muted" aria-hidden />
-      ) : isSignedIn && session ? (
-        <div className="relative" ref={menuRef}>
-          <button
-            type="button"
-            onClick={() => setMenuOpen((open) => !open)}
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            className="flex items-center gap-2 rounded-full border border-border bg-background px-2 py-1 pr-3 text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
-          >
-            <span className="flex size-[30px] items-center justify-center rounded-full bg-[#4D7EA0] text-xs font-semibold text-white">
-              {initialsFor(session.user.email ?? "?")}
-            </span>
-            <span className="max-w-[10rem] truncate">{session.user.email}</span>
-            <ChevronDown className="size-3.5 text-muted-foreground" />
-          </button>
-
-          {menuOpen && (
-            <div
-              role="menu"
-              className="absolute right-0 z-20 mt-2 w-44 overflow-hidden rounded-lg border border-border bg-popover py-1 text-sm text-popover-foreground shadow-lg"
-            >
-              <Link
-                href="/account"
-                role="menuitem"
-                onClick={() => setMenuOpen(false)}
-                className="flex items-center gap-2 px-3 py-2 hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
-              >
-                <User className="size-4" />
-                Account
-              </Link>
-              {isAdministrator && (
-                <Link
-                  href="/audit-log"
-                  role="menuitem"
-                  onClick={() => setMenuOpen(false)}
-                  className="flex items-center gap-2 px-3 py-2 hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
-                >
-                  <Shield className="size-4" />
-                  Audit Log
-                </Link>
-              )}
-              <button
-                type="button"
-                role="menuitem"
-                onClick={handleLogout}
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-destructive hover:bg-destructive/10 focus-visible:bg-destructive/10 focus-visible:outline-none"
-              >
-                <LogOut className="size-4" />
-                Log out
-              </button>
-            </div>
+      {/* md+ layout: single row containing wordmark, nav, account. */}
+      <div className="hidden w-full items-center justify-between px-4 py-3 sm:px-6 md:flex">
+        <div className="flex items-center gap-6">
+          <Link href="/" aria-label="Storporate home">
+            <Wordmark />
+          </Link>
+          {isStudent && (
+            <StudentNav
+              className="flex items-center gap-1"
+              isDashboardActive={isDashboardActive}
+              isPortfolioActive={isPortfolioActive}
+              isAdvisorActive={isAdvisorActive}
+            />
           )}
         </div>
-      ) : (
-        <Button asChild size="sm">
-          <Link href="/login">Continue</Link>
-        </Button>
-      )}
+
+        {status === "loading" ? (
+          <div
+            className="h-8 w-20 animate-pulse rounded-full bg-muted"
+            aria-hidden
+          />
+        ) : isSignedIn && session ? (
+          <AccountMenu
+            session={session}
+            menuOpen={menuOpen}
+            setMenuOpen={setMenuOpen}
+            menuRef={menuRef}
+            isAdministrator={isAdministrator}
+            onLogout={handleLogout}
+          />
+        ) : (
+          <Button asChild size="sm">
+            <Link href="/login">Continue</Link>
+          </Button>
+        )}
+      </div>
     </header>
+  );
+}
+
+/** Account dropdown shared between the phone and md+ layouts. The
+ * `compact` prop hides the email + chevron padding so the avatar-only
+ * "account" button fits the phone row 1 layout (12px 16px 8px). */
+function AccountMenu({
+  session,
+  menuOpen,
+  setMenuOpen,
+  menuRef,
+  isAdministrator,
+  onLogout,
+  compact,
+}: {
+  session: { user: { email?: string | null } };
+  menuOpen: boolean;
+  setMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  menuRef: React.RefObject<HTMLDivElement | null>;
+  isAdministrator: boolean;
+  onLogout: () => void;
+  compact?: boolean;
+}) {
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        type="button"
+        onClick={() => setMenuOpen((open) => !open)}
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        className={
+          compact
+            ? "flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 pr-2 text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+            : "flex items-center gap-2 rounded-full border border-border bg-background px-2 py-1 pr-3 text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+        }
+      >
+        <span className="flex size-[30px] items-center justify-center rounded-full bg-[#4D7EA0] text-xs font-semibold text-white">
+          {initialsFor(session.user.email ?? "?")}
+        </span>
+        {!compact && (
+          <span className="max-w-[10rem] truncate">
+            {session.user.email}
+          </span>
+        )}
+        <ChevronDown className="size-3.5 text-muted-foreground" />
+      </button>
+
+      {menuOpen && (
+        <div
+          role="menu"
+          className="absolute right-0 z-20 mt-2 w-44 overflow-hidden rounded-lg border border-border bg-popover py-1 text-sm text-popover-foreground shadow-lg"
+        >
+          <Link
+            href="/account"
+            role="menuitem"
+            onClick={() => setMenuOpen(false)}
+            className="flex items-center gap-2 px-3 py-2 hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
+          >
+            <User className="size-4" />
+            Account
+          </Link>
+          {isAdministrator && (
+            <Link
+              href="/audit-log"
+              role="menuitem"
+              onClick={() => setMenuOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
+            >
+              <Shield className="size-4" />
+              Audit Log
+            </Link>
+          )}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={onLogout}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-destructive hover:bg-destructive/10 focus-visible:bg-destructive/10 focus-visible:outline-none"
+          >
+            <LogOut className="size-4" />
+            Log out
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -154,19 +250,29 @@ export function Header() {
  * the account dropdown's active/hover styling, adapted for a top-bar link.
  */
 function StudentNav({
+  className,
   isDashboardActive,
   isPortfolioActive,
+  isAdvisorActive,
 }: {
+  className?: string;
   isDashboardActive: boolean;
   isPortfolioActive: boolean;
+  isAdvisorActive: boolean;
 }) {
   return (
-    <nav aria-label="Student navigation" className="flex items-center gap-1">
+    <nav
+      aria-label="Student navigation"
+      className={className ?? "flex items-center gap-1"}
+    >
       <StudentNavLink href="/dashboard" active={isDashboardActive}>
         Dashboard
       </StudentNavLink>
       <StudentNavLink href="/dashboard/portfolio" active={isPortfolioActive}>
         My Portfolio
+      </StudentNavLink>
+      <StudentNavLink href="/dashboard/advisor" active={isAdvisorActive}>
+        Advisor
       </StudentNavLink>
     </nav>
   );
