@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Loader2, Plus } from "lucide-react";
 
 import { ApiError } from "@/lib/api/errors";
 import {
@@ -23,8 +23,12 @@ import { AdvisorErrorState } from "@/components/advisor/advisor-error-state";
 import { ApplicantCard } from "@/components/jobs/applicant-card";
 import { JobsEmptyState, JobsListSkeleton } from "@/components/jobs/job-states";
 import { APPLICATION_STATUS_LABELS } from "@/components/jobs/job-pills";
+import { SegmentedControl } from "@/components/jobs/segmented-control";
+import { Button } from "@/components/ui/button";
 
 type StatusFilter = "All" | ApplicationStatus;
+
+const PAGE_SIZE = 20;
 
 const FILTERS: StatusFilter[] = [
   "All",
@@ -34,13 +38,9 @@ const FILTERS: StatusFilter[] = [
   "NotSelected",
 ];
 
-function filterLabel(filter: StatusFilter): string {
-  return filter === "All" ? "All" : APPLICATION_STATUS_LABELS[filter];
-}
-
 type LoadState =
   | { kind: "loading" }
-  | { kind: "loaded"; posting: JobPosting; applicants: ApplicantResponse[] }
+  | { kind: "loaded"; posting: JobPosting; items: ApplicantResponse[]; total: number }
   | { kind: "notFound" }
   | { kind: "error" };
 
@@ -54,6 +54,9 @@ export default function ApplicantsPage() {
 
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [version, setVersion] = useState(0);
+  const [page, setPage] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState(false);
   const [filter, setFilter] = useState<StatusFilter>("All");
 
   const [openId, setOpenId] = useState<string | null>(null);
@@ -64,41 +67,85 @@ export default function ApplicantsPage() {
   // Applicants whose detail request already ran (that request marks Viewed).
   const loadedIds = useRef<Set<string>>(new Set());
 
-  useEffect(() => {
-    if (!accessToken || !postingId) return;
-    const controller = new AbortController();
-    (async () => {
-      setState({ kind: "loading" });
+  const fetchFirstPage = useCallback(
+    async (signal: AbortSignal) => {
       try {
         const [posting, list] = await Promise.all([
-          getMyPosting(accessToken, postingId, controller.signal),
-          listApplicants(accessToken, postingId, controller.signal),
+          getMyPosting(accessToken!, postingId!, signal),
+          listApplicants(accessToken!, postingId!, signal, {
+            page: 1,
+            pageSize: PAGE_SIZE,
+          }),
         ]);
-        if (controller.signal.aborted) return;
+        if (signal.aborted) return;
         loadedIds.current = new Set();
         setOpenId(null);
         setErrors({});
-        setState({ kind: "loaded", posting, applicants: list.items });
+        setPage(1);
+        setState({
+          kind: "loaded",
+          posting,
+          items: list.items,
+          total: list.total,
+        });
       } catch (error) {
-        if (controller.signal.aborted) return;
+        if (signal.aborted) return;
         if (error instanceof ApiError && error.errorCode === "job_posting_not_found") {
           setState({ kind: "notFound" });
         } else {
           setState({ kind: "error" });
         }
       }
-    })();
+    },
+    [accessToken, postingId],
+  );
+
+  useEffect(() => {
+    if (!accessToken || !postingId) return;
+    const controller = new AbortController();
+    // Same data-fetching pattern as dashboard/jobs/page.tsx and
+    // audit-log/page.tsx: flip the load-state synchronously to reflect
+    // the in-flight request.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setState({ kind: "loading" });
+    void fetchFirstPage(controller.signal);
     return () => controller.abort();
-  }, [accessToken, postingId, version]);
+  }, [accessToken, postingId, fetchFirstPage, version]);
+
+  async function loadMore() {
+    if (!accessToken || !postingId || state.kind !== "loaded") return;
+    if (loadingMore) return;
+    const canLoadMore = page * PAGE_SIZE < state.total;
+    if (!canLoadMore) return;
+    setLoadingMore(true);
+    setLoadMoreError(false);
+    const next = page + 1;
+    const controller = new AbortController();
+    try {
+      const list = await listApplicants(accessToken, postingId, controller.signal, {
+        page: next,
+        pageSize: PAGE_SIZE,
+      });
+      if (controller.signal.aborted) return;
+      setState((prev) =>
+        prev.kind === "loaded"
+          ? { ...prev, items: [...prev.items, ...list.items], total: list.total }
+          : prev,
+      );
+      setPage(next);
+    } catch {
+      setLoadMoreError(true);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   const replaceApplicant = useCallback((updated: ApplicantResponse) => {
     setState((prev) =>
       prev.kind === "loaded"
         ? {
             ...prev,
-            applicants: prev.applicants.map((a) =>
-              a.id === updated.id ? updated : a,
-            ),
+            items: prev.items.map((a) => (a.id === updated.id ? updated : a)),
           }
         : prev,
     );
@@ -167,7 +214,7 @@ export default function ApplicantsPage() {
 
   return (
     <div className="px-4 py-10 sm:px-6 lg:px-10">
-      <div className="mx-auto flex w-full max-w-[820px] flex-col gap-6">
+      <div className="mx-auto flex w-full max-w-[900px] flex-col gap-6">
         <Link
           href="/employer/jobs"
           className="inline-flex w-fit items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
@@ -203,51 +250,24 @@ export default function ApplicantsPage() {
               </p>
             </div>
 
-            {state.applicants.length === 0 ? (
-              <JobsEmptyState
-                title="No applications yet."
-                message="When students apply, they show up here with how they fit."
-              />
-            ) : (
-              <>
-                <div
-                  role="group"
-                  aria-label="Filter by status"
-                  className="flex flex-wrap gap-2"
-                >
-                  {FILTERS.map((f) => {
-                    const active = filter === f;
-                    return (
-                      <button
-                        key={f}
-                        type="button"
-                        aria-pressed={active}
-                        onClick={() => setFilter(f)}
-                        className={
-                          active
-                            ? "inline-flex h-8 items-center rounded-full bg-primary px-3.5 text-sm font-semibold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                            : "inline-flex h-8 items-center rounded-full border bg-background px-3.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                        }
-                      >
-                        {filterLabel(f)}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <ApplicantList
-                  applicants={state.applicants}
-                  filter={filter}
-                  openId={openId}
-                  loadingId={loadingId}
-                  savingId={savingId}
-                  savingDecision={savingDecision}
-                  errors={errors}
-                  onToggle={toggle}
-                  onDecide={decide}
-                />
-              </>
-            )}
+            <ApplicantList
+              items={state.items}
+              total={state.total}
+              page={page}
+              pageSize={PAGE_SIZE}
+              loadingMore={loadingMore}
+              loadMoreError={loadMoreError}
+              filter={filter}
+              onFilterChange={setFilter}
+              openId={openId}
+              loadingId={loadingId}
+              savingId={savingId}
+              savingDecision={savingDecision}
+              errors={errors}
+              onLoadMore={loadMore}
+              onToggle={toggle}
+              onDecide={decide}
+            />
           </>
         )}
       </div>
@@ -255,57 +275,162 @@ export default function ApplicantsPage() {
   );
 }
 
+function filterLabel(filter: StatusFilter): string {
+  return filter === "All" ? "All" : APPLICATION_STATUS_LABELS[filter];
+}
+
 function ApplicantList({
-  applicants,
+  items,
+  total,
+  page,
+  pageSize,
+  loadingMore,
+  loadMoreError,
   filter,
+  onFilterChange,
   openId,
   loadingId,
   savingId,
   savingDecision,
   errors,
+  onLoadMore,
   onToggle,
   onDecide,
 }: {
-  applicants: ApplicantResponse[];
+  items: ApplicantResponse[];
+  total: number;
+  page: number;
+  pageSize: number;
+  loadingMore: boolean;
+  loadMoreError: boolean;
   filter: StatusFilter;
+  onFilterChange: (next: StatusFilter) => void;
   openId: string | null;
   loadingId: string | null;
   savingId: string | null;
   savingDecision: ApplicantDecision | null;
   errors: Record<string, string>;
+  onLoadMore: () => void;
   onToggle: (a: ApplicantResponse) => void;
   onDecide: (a: ApplicantResponse, status: ApplicantDecision) => void;
 }) {
+  // Counts come from the loaded items — accurate when everything has been
+  // paged in; partial during progressive loading. Server-side filtering is
+  // out of scope for Phase 2.
+  const counts = useMemo(() => {
+    const result: Record<StatusFilter, number> = {
+      All: items.length,
+      Submitted: 0,
+      Viewed: 0,
+      Shortlisted: 0,
+      NotSelected: 0,
+    };
+    for (const a of items) result[a.status] += 1;
+    return result;
+  }, [items]);
+
   // The open card stays visible even when its status changes, so it does not
   // vanish from under the employer mid-decision.
-  const visible = applicants.filter(
+  const visible = items.filter(
     (a) => filter === "All" || a.status === filter || a.id === openId,
   );
 
-  if (visible.length === 0) {
+  const canLoadMore = page * pageSize < total;
+
+  if (items.length === 0) {
     return (
       <JobsEmptyState
-        title="No applications here"
-        message="Pick another status to see the rest."
+        title="No applications yet."
+        message="When students apply, they show up here with how they fit."
       />
     );
   }
 
+  const options = FILTERS.map((f) => ({
+    value: f,
+    label: `${filterLabel(f)} (${counts[f]})`,
+  }));
+
   return (
-    <ul className="flex flex-col gap-3">
-      {visible.map((applicant) => (
-        <li key={applicant.id}>
-          <ApplicantCard
-            applicant={applicant}
-            open={openId === applicant.id}
-            loading={loadingId === applicant.id}
-            savingDecision={savingId === applicant.id ? savingDecision : null}
-            error={errors[applicant.id] ?? null}
-            onToggle={() => onToggle(applicant)}
-            onDecide={(status) => onDecide(applicant, status)}
-          />
-        </li>
-      ))}
-    </ul>
+    <div className="flex flex-col gap-4">
+      <SegmentedControl<StatusFilter>
+        name="applicants-status-filter"
+        legend="Filter by status"
+        size="md"
+        options={options}
+        value={filter}
+        onChange={onFilterChange}
+      />
+
+      <p
+        role="status"
+        aria-live="polite"
+        className="text-xs font-medium text-muted-foreground"
+      >
+        {`Showing ${items.length} of ${total} ${total === 1 ? "applicant" : "applicants"}`}
+      </p>
+
+      {visible.length === 0 ? (
+        <JobsEmptyState
+          title="No applications here"
+          message="Pick another status to see the rest."
+        />
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {visible.map((applicant) => (
+            <li key={applicant.id}>
+              <ApplicantCard
+                applicant={applicant}
+                open={openId === applicant.id}
+                loading={loadingId === applicant.id}
+                savingDecision={savingId === applicant.id ? savingDecision : null}
+                error={errors[applicant.id] ?? null}
+                onToggle={() => onToggle(applicant)}
+                onDecide={(status) => onDecide(applicant, status)}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {canLoadMore ? (
+        <div className="flex flex-col items-center gap-2.5 pt-1">
+          <Button
+            type="button"
+            variant="outline"
+            size="lg"
+            className="h-12 w-full border-[1.5px] border-border px-4 text-foreground sm:w-auto"
+            onClick={onLoadMore}
+            disabled={loadingMore}
+            aria-busy={loadingMore}
+          >
+            {loadingMore ? (
+              <Loader2
+                className="size-4 animate-spin motion-reduce:animate-none"
+                aria-hidden
+              />
+            ) : (
+              <Plus className="size-4" aria-hidden />
+            )}
+            {loadingMore ? "Loading more…" : "Load more applicants"}
+          </Button>
+          {loadMoreError ? (
+            <p
+              role="alert"
+              className="flex flex-wrap items-center gap-2 text-[14px] font-medium text-danger"
+            >
+              Could not load more applicants.
+              <button
+                type="button"
+                onClick={onLoadMore}
+                className="underline underline-offset-2"
+              >
+                Try again
+              </button>
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }

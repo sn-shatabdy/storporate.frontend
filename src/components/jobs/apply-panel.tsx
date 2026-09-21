@@ -3,7 +3,7 @@
 import { useId, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { CheckCircle2, Loader2, Send } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, Send } from "lucide-react";
 
 import { ApiError } from "@/lib/api/errors";
 import { applyToJob, listMyApplications } from "@/lib/api/jobApplications";
@@ -15,6 +15,15 @@ import { ApplicationStatusPill } from "./job-pills";
 /** Shown near the Apply button. Short and neutral on purpose. */
 export const APPLY_NOTE =
   "Your application shares your profile skills with this employer. Your original files stay private unless you shared them.";
+
+/**
+ * Copy from the approved design canvas (`Desktop-03-States.dc.html`,
+ * "Apply panel — deadline passed" card). Used when the backend rejects an
+ * apply attempt with `job_posting_deadline_passed` so the student gets a
+ * specific message instead of the generic fallback.
+ */
+const DEADLINE_PASSED_MESSAGE =
+  "The deadline for this opening has passed. It's no longer accepting applications.";
 
 type Phase = "idle" | "busy";
 
@@ -38,6 +47,7 @@ export function ApplyPanel({
   );
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [deadlinePassed, setDeadlinePassed] = useState(false);
   const [needsName, setNeedsName] = useState(false);
   const [name, setName] = useState("");
   const nameRef = useRef<HTMLInputElement>(null);
@@ -95,6 +105,14 @@ export function ApplyPanel({
           setPhase("idle");
           return;
         }
+        if (e.errorCode === "job_posting_deadline_passed") {
+          // The opening closed between page load and click — surface the
+          // deadline-passed callout and a disabled "Applications closed"
+          // button so the student knows why the action stopped working.
+          setDeadlinePassed(true);
+          setPhase("idle");
+          return;
+        }
       }
       setError("Could not send your application. Try again.");
     }
@@ -109,7 +127,7 @@ export function ApplyPanel({
       >
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-foreground">
-            <CheckCircle2 className="size-4 text-[#1e7b34]" aria-hidden />
+            <CheckCircle2 className="size-4 text-success" aria-hidden />
             You applied
           </span>
           <ApplicationStatusPill status={application.status} />
@@ -120,6 +138,31 @@ export function ApplyPanel({
             View your applications
           </Link>
         </div>
+      </div>
+    );
+  }
+
+  if (deadlinePassed) {
+    return (
+      <div
+        className="flex flex-col gap-3 border-t pt-4"
+        style={{ borderColor: "var(--border)" }}
+        role="status"
+      >
+        <div
+          role="alert"
+          className="flex items-start gap-2.5 rounded-[10px] bg-warning-soft px-3.5 py-3 text-[14px] font-semibold leading-snug text-warning"
+        >
+          <AlertTriangle className="size-[18px] shrink-0" aria-hidden />
+          <span>{DEADLINE_PASSED_MESSAGE}</span>
+        </div>
+        <Button
+          type="button"
+          disabled
+          className="h-12 w-full border-0 bg-secondary px-4 text-[15px] font-bold text-muted-foreground sm:h-[48px] sm:w-auto"
+        >
+          Applications closed
+        </Button>
       </div>
     );
   }

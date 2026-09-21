@@ -90,6 +90,9 @@ describe("ApplyPanel", () => {
     );
     vi.mocked(listMyApplications).mockResolvedValue({
       items: [makeApplication({ jobPostingId: "job-1", status: "Viewed" })],
+      page: 1,
+      pageSize: 20,
+      total: 1,
     });
     render(<ApplyPanel jobId="job-1" initial={null} />);
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
@@ -170,5 +173,44 @@ describe("ApplyPanel", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "This opening is no longer available.",
     );
+  });
+
+  it("shows the deadline-passed callout and disabled button on job_posting_deadline_passed", async () => {
+    vi.mocked(applyToJob).mockRejectedValueOnce(
+      new ApiError("job_posting_deadline_passed", "x", 409),
+    );
+    render(<ApplyPanel jobId="job-1" initial={null} />);
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    // The deadline-passed card uses role="status" with an inner alert callout
+    // and a disabled "Applications closed" button — no normal Apply button.
+    await screen.findByRole("button", { name: "Applications closed" });
+    expect(
+      screen.getByText(/The deadline for this opening has passed\./),
+    ).toBeInTheDocument();
+    const closed = screen.getByRole("button", { name: "Applications closed" });
+    expect(closed).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Apply" })).not.toBeInTheDocument();
+    // The dashboard link to "View your applications" only appears in the
+    // applied state, not the deadline-passed state.
+    expect(
+      screen.queryByRole("link", { name: "View your applications" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("retrying after a deadline-passed error stays on the deadline-passed state", async () => {
+    vi.mocked(applyToJob).mockRejectedValue(
+      new ApiError("job_posting_deadline_passed", "x", 409),
+    );
+    render(<ApplyPanel jobId="job-1" initial={null} />);
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(
+      await screen.findByRole("button", { name: "Applications closed" }),
+    ).toBeDisabled();
+    // The deadline-passed state replaces the form entirely, so there is
+    // nothing left to click — the callout is the terminal UI.
+    expect(applyToJob).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByText(/no longer accepting applications/),
+    ).toBeInTheDocument();
   });
 });
