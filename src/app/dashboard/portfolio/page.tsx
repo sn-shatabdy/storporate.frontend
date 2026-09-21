@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import {
+  Eye,
   FileText,
   Inbox,
   Link2,
@@ -672,16 +673,22 @@ function PortfolioRow({ item, deleting, onDelete }: PortfolioRowProps) {
           </p>
         </div>
 
-        {/* Meta cell — date + delete button. Always present; visually moves
-         *  to the footer row on mobile (last grid row, top-bordered) and to
-         *  the top-right of the title row on desktop. */}
+        {/* Meta cell — date + (optional) shared pill + delete button.
+         *  Always present; visually moves to the footer row on mobile
+         *  (last grid row, top-bordered) and to the top-right of the title
+         *  row on desktop. The shared-with-employers pill (STOR-44) sits
+         *  to the left of the delete button when the item's sharing flag
+         *  is true; the row markup stays exactly as it was otherwise. */}
         <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-[color:var(--border)] pt-2.5 [grid-area:meta] sm:mt-0 sm:justify-end sm:border-0 sm:pt-0">
           <span className="text-[11px] text-muted-foreground sm:text-[11.5px]">{formattedDate}</span>
-          <DeleteButton
-            item={item}
-            deleting={deleting}
-            onDelete={onDelete}
-          />
+          <div className="flex items-center gap-2">
+            {item.shareOriginalWithEmployers && <SharedWithEmployersPill />}
+            <DeleteButton
+              item={item}
+              deleting={deleting}
+              onDelete={onDelete}
+            />
+          </div>
         </div>
 
         {/* Pills cell — status + skill pills + +N more. */}
@@ -732,6 +739,27 @@ function DeleteButton({ item, deleting, onDelete }: DeleteButtonProps) {
         <Trash2 className="size-[14px] sm:size-[15px]" />
       )}
     </button>
+  );
+}
+
+/** STOR-44 Phase 3 — "Shared with employers" pill that marks a portfolio
+ *  row whose `shareOriginalWithEmployers` flag is on, so a student can
+ *  scan the list and instantly see which items are letting employers open
+ *  the original file/link and read the AI's skill reasoning. Eye icon
+ *  in `text-primary` (lucide size-3) sits before the label, the label is
+ *  `text-foreground` so it reads against the `bg-accent` background on
+ *  every theme variant. Always paired with the parent row's accessible
+ *  label so a screen-reader user hears the same information via the row
+ *  landmark without a duplicate announcement. */
+function SharedWithEmployersPill() {
+  return (
+    <span
+      data-testid="shared-with-employers-pill"
+      className="inline-flex items-center gap-1.5 rounded-full bg-accent px-2.5 py-1 text-[11px] font-semibold text-foreground"
+    >
+      <Eye className="size-3 text-primary" aria-hidden />
+      <span>Shared with employers</span>
+    </span>
   );
 }
 

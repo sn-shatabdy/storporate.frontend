@@ -16,7 +16,9 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ItemSharingCard } from "@/components/portfolio/item-sharing-card";
 import { ApiError } from "@/lib/api/errors";
+import { getSearchableProfile } from "@/lib/api/discovery";
 import {
   PORTFOLIO_CATEGORIES,
   getPortfolioItemAnalysis,
@@ -91,6 +93,18 @@ type DetailState =
   | { status: "notFound" }
   | { status: "error"; message: string };
 
+/** Visibility state for the per-item sharing card. Fetches the student's
+ *  `searchable-profile` alongside the item. Loaded INDEPENDENTLY of
+ *  `detail` — a failure to load the profile (network blip, transient
+ *  5xx, etc.) must NOT break the page; we treat it as `isSearchable=false`
+ *  so the card renders its locked-off "Turn on employer visibility to use
+ *  this." state instead. The student can still see every other part of
+ *  the item, and the lock can be cleared later by reloading the page once
+ *  the backend is healthy. */
+type SharingState =
+  | { status: "loading" }
+  | { status: "ready"; isSearchable: boolean };
+
 const POLL_INTERVAL_MS = 4000;
 
 /**
@@ -133,6 +147,12 @@ export default function PortfolioItemDetailPage() {
   const [retryError, setRetryError] = useState<string | null>(null);
 
   const [detail, setDetail] = useState<DetailState>({ status: "loading" });
+
+  // STOR-44 Phase 3: per-item sharing-card state. Fetched on mount
+  // alongside the item+analysis so the card is ready to render as soon
+  // as the item has loaded. Failures degrade to isSearchable=false
+  // (locked-off disabled state) — see SharingState comment above.
+  const [sharing, setSharing] = useState<SharingState>({ status: "loading" });
 
   // Initial fetch: parallel listPortfolioItems (to find the item's metadata)
   // + getPortfolioItemAnalysis (for the analysis rollup). Either 404 → the
@@ -200,6 +220,36 @@ export default function PortfolioItemDetailPage() {
     // polling tick's own setDetail), creating an infinite fetch loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken, id, refreshVersion]);
+
+  // Sharing-card profile fetch effect. Independent of the main detail
+  // fetch so the item can render even if the profile endpoint is
+  // transient-down. On failure we settle into `{ status: "ready",
+  // isSearchable: false }` so the ItemSharingCard renders its disabled
+  // state — same UX as a student who simply hasn't turned on employer
+  // visibility. Re-runs when `refreshVersion` bumps (Retry) or when the
+  // student saves the profile elsewhere; doesn't re-run on `sharingVersion`
+  // (a successful item-sharing PUT doesn't affect the profile).
+  useEffect(() => {
+    if (!accessToken) return;
+    const controller = new AbortController();
+    const tokenAtMount = accessToken;
+    (async () => {
+      try {
+        const profile = await getSearchableProfile(
+          tokenAtMount,
+          controller.signal,
+        );
+        if (controller.signal.aborted) return;
+        setSharing({ status: "ready", isSearchable: profile.isSearchable });
+      } catch {
+        if (controller.signal.aborted) return;
+        // Fail-open to "not searchable" — the card will render the
+        // locked-off state and the rest of the page is unaffected.
+        setSharing({ status: "ready", isSearchable: false });
+      }
+    })();
+    return () => controller.abort();
+  }, [accessToken, refreshVersion]);
 
   // Polling effect: while status is NotAnalyzed or Analyzing, re-fetch the
   // analysis every POLL_INTERVAL_MS until a terminal status arrives. Clears
@@ -297,6 +347,21 @@ export default function PortfolioItemDetailPage() {
     } finally {
       setRetrying(false);
     }
+  }
+
+  // STOR-44 Phase 3 — fired by ItemSharingCard when its PUT succeeds.
+  // Updates the local item so the card itself (and any other place that
+  // reads the flag) sees the new value without re-fetching the whole
+  // page. The list-page pill is reconciled by the list-page's own
+  // effect when it next refetches; we don't bump refreshVersion here
+  // because that would re-run BOTH the analysis polling effect AND the
+  // sharing profile effect unnecessarily — a flag flip changes neither.
+  function handleSharingChanged(updatedItem: PortfolioItem) {
+    setDetail((prev) =>
+      prev.status === "success"
+        ? { ...prev, item: updatedItem }
+        : prev,
+    );
   }
 
   if (status === "loading" || !session) {
@@ -422,6 +487,28 @@ export default function PortfolioItemDetailPage() {
             {statusStyle.label}
           </Badge>
         </header>
+
+        {/* STOR-44 Phase 3 — per-item "Employer access" card. Rendered
+            below the item header and above the analysis content (per
+            the approved canvas). Hidden until BOTH the item has loaded
+            AND the searchable-profile endpoint has settled — the
+            profile fetch degrades to isSearchable=false on failure so
+            the card still renders, just in its locked-off state. */}
+        {accessToken && (
+          <ItemSharingCard
+            item={{
+              id: item.id,
+              submissionType: item.submissionType,
+              originalFileName: item.originalFileName,
+              shareOriginalWithEmployers: item.shareOriginalWithEmployers,
+            }}
+            isSearchable={
+              sharing.status === "ready" ? sharing.isSearchable : false
+            }
+            accessToken={accessToken}
+            onChanged={handleSharingChanged}
+          />
+        )}
 
         <DetailContent
           analysis={analysis}
