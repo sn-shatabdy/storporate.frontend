@@ -58,6 +58,8 @@ export function Header() {
   // STOR-43 Phase 4 — Organization gets its own single-link nav,
   // mirroring the Student nav's role gating.
   const isOrganization = session?.actorType === "Organization";
+  // STOR-69 — Club accounts get a one-link nav to their profile builder.
+  const isClub = session?.actorType === "Club";
 
   const isDashboardActive = pathname === "/dashboard";
   const isPortfolioActive = pathname === "/dashboard/portfolio";
@@ -87,6 +89,10 @@ export function Header() {
     pathname?.startsWith("/employer/shortlist") ?? false;
   const isEmployerMessagesActive =
     pathname?.startsWith("/employer/messages") ?? false;
+  // STOR-69 — companies browse published club profiles.
+  const isEmployerClubsActive =
+    pathname?.startsWith("/employer/clubs") ?? false;
+  const isClubProfileActive = pathname?.startsWith("/club/profile") ?? false;
 
   async function handleLogout() {
     setMenuOpen(false);
@@ -156,6 +162,15 @@ export function Header() {
             isJobsActive={isEmployerJobsActive}
             isShortlistActive={isEmployerShortlistActive}
             isMessagesActive={isEmployerMessagesActive}
+            isClubsActive={isEmployerClubsActive}
+          />
+        </div>
+      )}
+      {isClub && (
+        <div className="border-b border-border/60 px-2.5 md:hidden">
+          <ClubNav
+            className="flex items-center gap-1 overflow-x-auto whitespace-nowrap py-1"
+            isProfileActive={isClubProfileActive}
           />
         </div>
       )}
@@ -185,6 +200,13 @@ export function Header() {
               isJobsActive={isEmployerJobsActive}
               isShortlistActive={isEmployerShortlistActive}
               isMessagesActive={isEmployerMessagesActive}
+              isClubsActive={isEmployerClubsActive}
+            />
+          )}
+          {isClub && (
+            <ClubNav
+              className="flex items-center gap-1"
+              isProfileActive={isClubProfileActive}
             />
           )}
         </div>
@@ -411,12 +433,14 @@ export function EmployerNav({
   isJobsActive = false,
   isShortlistActive = false,
   isMessagesActive = false,
+  isClubsActive = false,
 }: {
   className?: string;
   isSearchActive: boolean;
   isJobsActive?: boolean;
   isShortlistActive?: boolean;
   isMessagesActive?: boolean;
+  isClubsActive?: boolean;
 }) {
   return (
     <nav
@@ -435,6 +459,33 @@ export function EmployerNav({
       </StudentNavLink>
       <StudentNavLink href="/employer/messages" active={isMessagesActive}>
         Messages
+      </StudentNavLink>
+      {/* STOR-69 — published club profiles. */}
+      <StudentNavLink href="/employer/clubs" active={isClubsActive}>
+        Clubs
+      </StudentNavLink>
+    </nav>
+  );
+}
+
+/**
+ * Club-only nav rendered between the wordmark and the account menu. One
+ * link to the profile builder, styled like the other role navs.
+ */
+export function ClubNav({
+  className,
+  isProfileActive,
+}: {
+  className?: string;
+  isProfileActive: boolean;
+}) {
+  return (
+    <nav
+      aria-label="Club navigation"
+      className={className ?? "flex items-center gap-1"}
+    >
+      <StudentNavLink href="/club/profile" active={isProfileActive}>
+        My profile
       </StudentNavLink>
     </nav>
   );

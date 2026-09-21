@@ -23,14 +23,35 @@ export const TagInput = forwardRef<
     error?: string;
     disabled?: boolean;
     describedBy?: string;
+    /** Defaults to the skill limit. */
+    maxItems?: number;
+    /** Defaults to `addSkills`. Lets other lists bring their own limits. */
+    addItems?: (
+      existing: string[],
+      raw: string,
+    ) => { skills: string[]; error: string | null };
+    /** Shown while the list is empty. */
+    placeholder?: string;
   }
 >(function TagInput(
-  { id, skills, onSkillsChange, draft, onDraftChange, error, disabled, describedBy },
+  {
+    id,
+    skills,
+    onSkillsChange,
+    draft,
+    onDraftChange,
+    error,
+    disabled,
+    describedBy,
+    maxItems = LIMITS.skillsMax,
+    addItems = addSkills,
+    placeholder = "Type a skill and press Enter",
+  },
   ref,
 ) {
   const noticeId = useId();
   const [notice, setNotice] = useState<string | null>(null);
-  const atMax = skills.length >= LIMITS.skillsMax;
+  const atMax = skills.length >= maxItems;
   const message = notice ?? error ?? null;
 
   function commit(raw: string) {
@@ -38,7 +59,7 @@ export const TagInput = forwardRef<
       setNotice(null);
       return;
     }
-    const result = addSkills(skills, raw);
+    const result = addItems(skills, raw);
     onSkillsChange(result.skills);
     setNotice(result.error);
     // Keep the text (without commas) so the person can fix it.
@@ -78,7 +99,7 @@ export const TagInput = forwardRef<
         value={draft}
         disabled={disabled}
         maxLength={200}
-        placeholder={skills.length === 0 ? "Type a skill and press Enter" : atMax ? "" : "Add another"}
+        placeholder={skills.length === 0 ? placeholder : atMax ? "" : "Add another"}
         aria-invalid={error ? true : undefined}
         aria-describedby={[describedBy, message ? noticeId : null].filter(Boolean).join(" ") || undefined}
         onChange={(e) => {

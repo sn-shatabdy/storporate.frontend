@@ -159,4 +159,31 @@ describe("LoginPage — post-OTP landing route", () => {
 
     expect(pushMock).toHaveBeenCalledWith("/account");
   });
+
+  it("lands a Club on /club/profile after a successful OTP verify", async () => {
+    vi.mocked(verifyOtp).mockResolvedValue(authResult("Club"));
+
+    render(<LoginPage />);
+
+    fireEvent.change(screen.getByLabelText(/Email address/i), {
+      target: { value: "ada@example.com" },
+    });
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: /Continue with email/i }),
+      );
+    });
+
+    for (let i = 1; i <= 6; i++) {
+      fireEvent.change(screen.getByLabelText(`Digit ${i} of 6`), {
+        target: { value: String(i) },
+      });
+    }
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Verify code/i }));
+    });
+
+    expect(pushMock).toHaveBeenCalledWith("/club/profile");
+  });
 });
