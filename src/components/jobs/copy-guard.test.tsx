@@ -61,6 +61,9 @@ beforeEach(() => {
       makeJob({ id: "j1" }),
       makeJob({ id: "j2", fit: { label: "Not yet", matched: [], missing: ["SQL", "Excel"] } }),
     ],
+    page: 1,
+    pageSize: 20,
+    total: 2,
   });
   vi.mocked(getJob).mockResolvedValue(makeJob());
 });
@@ -118,7 +121,7 @@ describe("copy guard", () => {
   });
 
   it("empty and error states", async () => {
-    vi.mocked(listJobs).mockResolvedValue({ items: [] });
+    vi.mocked(listJobs).mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0 });
     const a = render(<OpeningsPage />);
     await screen.findByText("No openings yet");
     assertCleanCopy(a.container.textContent ?? "");

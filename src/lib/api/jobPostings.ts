@@ -123,20 +123,46 @@ export interface JobApplicationRef {
 }
 
 /**
- * Student-side record. Optional fields added in Phase 1 (deadline, openings,
- * compensation, isExpired, status) are surfaced here so the Phase 3 student
- * screens can read them without breaking compilation. Older API responses
- * without these keys still type-check (all fields are optional).
+ * Student-side record. Phase 1 adds `applicationDeadline`, `openings`,
+ * `compensation` (visible to students only when the employer opted in),
+ * `isExpired` (true for Open postings past their deadline) and `status`.
+ * The fit envelope is unchanged from STOR-67 so application snapshots keep
+ * loading. Optional fields stay optional for backward compatibility with
+ * older API responses that did not yet carry the Phase 1 additions.
  */
 export interface JobWithFit extends JobPosting {
   fit: JobFit;
   application: JobApplicationRef | null;
 }
 
+/**
+ * Phase 1 student-side filters. `sort` is the only Phase 1-only field; the
+ * others are the original `kind` / `workMode` / `q` filter set kept in the
+ * same shape so the page component does not need to know the wire order.
+ * `page` is 1-based, matching the backend `BrowseJobsHandler`.
+ */
 export interface JobFilters {
   kind?: PostingKind;
   workMode?: WorkMode;
   q?: string;
+  /** `fit` (default) or `newest`. Phase 1 addition. */
+  sort?: "fit" | "newest";
+  /** 1-based page number; default 1 on the wire when omitted. */
+  page?: number;
+  /** Page size; default 20 on the wire when omitted. */
+  pageSize?: number;
+}
+
+/**
+ * Phase 1 student-side browse envelope. The page uses `total` to decide
+ * whether the "Load more" button should appear, and `page` / `pageSize`
+ * to update the live result-count line on each fetch.
+ */
+export interface JobBrowsePage {
+  items: JobWithFit[];
+  page: number;
+  pageSize: number;
+  total: number;
 }
 
 const BASE = "/api/discovery/job-postings";
@@ -207,17 +233,29 @@ export async function setPostingStatus(
   });
 }
 
-/** Student: Open postings with fit. Empty filters are left out of the URL. */
+/**
+ * Student: Open postings with fit, paged. Empty filters are left out of
+ * the URL; `sort`, `page` and `pageSize` are only sent when set so the
+ * default sort (`fit`) and the first page come back without query
+ * noise. The Phase 1 wire shape is `{ items, page, pageSize, total }`.
+ */
 export async function listJobs(
   bearerToken: string,
   filters: JobFilters = {},
   signal?: AbortSignal,
-): Promise<{ items: JobWithFit[] }> {
+): Promise<JobBrowsePage> {
   const params = new URLSearchParams();
   if (filters.kind) params.set("kind", filters.kind);
   if (filters.workMode) params.set("workMode", filters.workMode);
   const q = filters.q?.trim();
   if (q) params.set("q", q);
+  if (filters.sort) params.set("sort", filters.sort);
+  if (typeof filters.page === "number" && filters.page > 0) {
+    params.set("page", String(filters.page));
+  }
+  if (typeof filters.pageSize === "number" && filters.pageSize > 0) {
+    params.set("pageSize", String(filters.pageSize));
+  }
   return apiCall("GET", appendQuery("/api/discovery/jobs", params), {
     bearerToken,
     signal,

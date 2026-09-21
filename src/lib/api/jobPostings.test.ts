@@ -138,14 +138,14 @@ describe("employer endpoints", () => {
 describe("student endpoints", () => {
   it("listJobs sends no query string without filters", async () => {
     const { listJobs } = await loadClient();
-    const fetchMock = stubFetch(json({ items: [] }));
+    const fetchMock = stubFetch(json({ items: [], page: 1, pageSize: 20, total: 0 }));
     await listJobs("tok");
     expect(fetchMock.mock.calls[0][0]).toBe(`${API_BASE}/api/discovery/jobs`);
   });
 
   it("listJobs sends kind, workMode and trimmed q, and skips empties", async () => {
     const { listJobs } = await loadClient();
-    const fetchMock = stubFetch(json({ items: [] }));
+    const fetchMock = stubFetch(json({ items: [], page: 1, pageSize: 20, total: 0 }));
     await listJobs("tok", { kind: "Internship", workMode: "Remote", q: "  power bi " });
     const url = new URL(fetchMock.mock.calls[0][0]);
     expect(url.pathname).toBe("/api/discovery/jobs");
@@ -153,9 +153,19 @@ describe("student endpoints", () => {
     expect(url.searchParams.get("workMode")).toBe("Remote");
     expect(url.searchParams.get("q")).toBe("power bi");
 
-    const second = stubFetch(json({ items: [] }));
+    const second = stubFetch(json({ items: [], page: 1, pageSize: 20, total: 0 }));
     await listJobs("tok", { q: "   " });
     expect(second.mock.calls[0][0]).toBe(`${API_BASE}/api/discovery/jobs`);
+  });
+
+  it("listJobs sends sort, page and pageSize when set", async () => {
+    const { listJobs } = await loadClient();
+    const fetchMock = stubFetch(json({ items: [], page: 2, pageSize: 20, total: 46 }));
+    await listJobs("tok", { sort: "newest", page: 2, pageSize: 20 });
+    const url = new URL(fetchMock.mock.calls[0][0]);
+    expect(url.searchParams.get("sort")).toBe("newest");
+    expect(url.searchParams.get("page")).toBe("2");
+    expect(url.searchParams.get("pageSize")).toBe("20");
   });
 
   it("getJob GETs one job with fit", async () => {

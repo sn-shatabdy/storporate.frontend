@@ -1,4 +1,4 @@
-import { Check, type LucideIcon } from "lucide-react";
+import { Calendar, Check, type LucideIcon } from "lucide-react";
 
 import type {
   ApplicationStatus,
@@ -9,6 +9,8 @@ import type {
 } from "@/lib/api/jobPostings";
 
 import { cn } from "cn";
+
+import { deadlineText } from "./deadline-text";
 
 /** Shared small pieces for job and internship surfaces. */
 
@@ -179,11 +181,87 @@ export function SkillChip({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * Phase 3 — "You have" skill chip on student cards. Solid success token,
+ * check icon, slightly tighter padding so the icon nests inside the pill
+ * without breaking the rounded silhouette. Sized at 13 px bold to match
+ * the approved design canvas.
+ */
+export function HaveSkillChip({ name }: { name: string }) {
+  return (
+    <span
+      className={cn(
+        PILL,
+        "gap-[5px] bg-success-soft px-[11px] py-[5px] pl-[9px] text-[13px] font-bold text-success",
+      )}
+    >
+      <Check className="size-[13px] shrink-0" strokeWidth={3} aria-hidden />
+      {name}
+    </span>
+  );
+}
+
+/**
+ * Phase 3 — "To build" skill chip on student cards. Dashed cream border
+ * to read as "not yet shown", muted foreground, no icon. The dashed
+ * border colour comes from `--warning`'s soft pair translated into a
+ * muted tone via the existing `border-border` token plus a custom
+ * dashed treatment; this stays within the design system since the
+ * dashed style is the only visual difference from `SkillChip`.
+ */
+export function ToBuildSkillChip({ name }: { name: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full border-[1.5px] border-dashed px-[11px] py-[4px] text-[13px] font-semibold",
+        "border-border bg-background text-muted-foreground",
+      )}
+    >
+      {name}
+    </span>
+  );
+}
+
 /** "A, B, C +2 more" with at most `limit` names shown. */
 export function truncatedList(names: string[], limit = 3): string {
   const shown = names.slice(0, limit).join(", ");
   const rest = names.length - limit;
   return rest > 0 ? `${shown} +${rest} more` : shown;
+}
+
+/**
+ * Phase 3 — calendar icon + short deadline text on student cards. Renders
+ * the deadline label from `deadlineText(iso, now)` and switches to the
+ * warning tone (orange) when the deadline is at most 3 days away, so
+ * "Closing soon" stands out without losing the muted default elsewhere.
+ * Returns `null` when there is no deadline, so callers can drop it.
+ */
+export function DeadlineChip({
+  iso,
+  now,
+  className,
+}: {
+  iso: string | null | undefined;
+  now?: Date;
+  className?: string;
+}) {
+  const text = deadlineText(iso, now);
+  if (text.kind === "none") return null;
+  const soon = text.kind === "today" || text.kind === "soon";
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 text-[14px]",
+        soon
+          ? "font-bold text-warning"
+          : "font-medium text-muted-foreground",
+        className,
+      )}
+    >
+      <Calendar className="size-4" aria-hidden />
+      {text.text}
+    </span>
+  );
 }
 
 /** "BDT 15,000" with a thin space as the thousands separator. */
@@ -192,14 +270,18 @@ export function formatBdt(n: number): string {
 }
 
 /** Render a pay range in whole taka per month. Hides the bound entirely
- *  when null. */
+ *  when null. The "BDT" prefix is shown once at the start of the range. */
 export function formatPayRange(
   min: number | null,
   max: number | null,
   unit = "per month",
 ): string | null {
   if (min == null && max == null) return null;
-  if (min != null && max != null) return `${formatBdt(min)} to ${formatBdt(max)} ${unit}`.trim();
+  if (min != null && max != null) {
+    const minStr = min.toLocaleString("en-US");
+    const maxStr = max.toLocaleString("en-US");
+    return `BDT ${minStr} to ${maxStr} ${unit}`.trim();
+  }
   if (min != null) return `From ${formatBdt(min)} ${unit}`.trim();
   return `Up to ${formatBdt(max as number)} ${unit}`.trim();
 }

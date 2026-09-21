@@ -1,25 +1,28 @@
 import type { ReactNode } from "react";
-import { AlertTriangle, Briefcase, Search } from "lucide-react";
+import { AlertTriangle, Briefcase, Loader2, Search } from "lucide-react";
 
 import { cn } from "cn";
 
 /**
  * STOR-66 Phase 2 — empty and error states shared by the employer
- * openings list and the applicants view. The shell mirrors the approved
- * design canvas (centred white card with a coloured icon tile, a
- * Space Grotesk heading, a muted body sentence and an optional CTA).
+ * openings list and the applicants view. STOR-66 Phase 3 adds the
+ * matching student-side variants (the same shell, the same icon tile
+ * shape, the same CTA styling) so both lists speak the same visual
+ * language without copy-pasting markup.
  *
  * Empty-state variants:
  *   - `JobsEmptyState` — generic; used by the applicants page.
  *   - `EmployerNoOpenings` — no openings at all ("No openings yet" + CTA).
  *   - `EmployerNoMatch` — filter or search yielded nothing ("Clear filters").
+ *   - `OpeningsEmptyState` — student side, no postings at all.
+ *   - `OpeningsNoMatch` — student side, filter or search yielded nothing.
  *
  * Error variant: `JobsErrorState` — wraps the same shell with a danger
- * icon and the "Try again" CTA. The phase 2 plan keeps the more compact
- * `AdvisorErrorState` for the page-level error and uses the new shell
- * only inside the openings list. The shell is exported as
- * `EmployerStateCard` so callers can pass their own icon + CTA when
- * the design diverges.
+ * icon and the "Try again" CTA. `OpeningsErrorState` is the student
+ * counterpart used inside the openings list and as the page-level error.
+ *
+ * The shell is exported as `EmployerStateCard` so callers can pass
+ * their own icon + CTA when the design diverges.
  */
 
 export function EmployerStateCard({
@@ -191,5 +194,97 @@ export function JobsListSkeleton({ label }: { label: string }) {
         </div>
       ))}
     </div>
+  );
+}
+
+/**
+ * Phase 3 — student openings list, no postings at all. Mirrors the
+ * employer "No openings yet" shape but uses the student-side copy from
+ * the approved design canvas ("New jobs and internships appear here.
+ * Check back soon."). No CTA — the student has nothing actionable to
+ * take when there are no openings.
+ */
+export function OpeningsEmptyState() {
+  return (
+    <EmployerStateCard
+      icon={<Briefcase className="size-6" strokeWidth={1.8} aria-hidden />}
+      iconClassName="bg-secondary text-primary"
+      title="No openings yet"
+      message="New jobs and internships appear here. Check back soon."
+    />
+  );
+}
+
+/**
+ * Phase 3 — student openings list, filter or search yielded nothing.
+ * One CTA: "Clear all filters" (bordered, 46 px tall, primary text) wired
+ * to `onClearFilters`.
+ */
+export function OpeningsNoMatch({ onClearFilters }: { onClearFilters: () => void }) {
+  return (
+    <EmployerStateCard
+      icon={<Search className="size-6" strokeWidth={1.8} aria-hidden />}
+      iconClassName="bg-secondary text-primary"
+      title="No openings match"
+      message="Try removing a filter or searching another word."
+      action={
+        <button
+          type="button"
+          onClick={onClearFilters}
+          className="inline-flex h-[46px] items-center justify-center gap-2 rounded-[10px] border border-border bg-background px-4 text-[15px] font-semibold text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        >
+          Clear all filters
+        </button>
+      }
+    />
+  );
+}
+
+/**
+ * Phase 3 — student openings list, page-level load error. The CTA is the
+ * outlined "Try again" button styled in the primary colour, matching the
+ * approved design canvas (bordered, primary text, 46 px tall).
+ */
+export function OpeningsErrorState({ onRetry }: { onRetry: () => void }) {
+  return (
+    <EmployerStateCard
+      role="alert"
+      icon={<AlertTriangle className="size-6" strokeWidth={1.8} aria-hidden />}
+      iconClassName="bg-danger-soft text-danger"
+      title="Could not load openings"
+      message="Check your connection and try again."
+      action={
+        <button
+          type="button"
+          onClick={onRetry}
+          className="inline-flex h-[46px] items-center justify-center gap-2 rounded-[10px] border-[1.5px] border-primary bg-background px-4 text-[15px] font-bold text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        >
+          Try again
+        </button>
+      }
+    />
+  );
+}
+
+/**
+ * Phase 3 — inline pill that announces a background refetch (e.g. after
+ * clearing a filter) to assistive tech without dimming the list. Pinned
+ * above the cards so screen readers announce "Updating results" each
+ * time the filter chip is removed.
+ */
+export function OpeningsRefetchIndicator() {
+  return (
+    <p
+      role="status"
+      aria-live="polite"
+      className="inline-flex items-center gap-2 self-start rounded-full border bg-card px-3.5 py-2.5 text-[14px] font-bold text-muted-foreground"
+      style={{ borderColor: "var(--border)" }}
+    >
+      <Loader2
+        className="size-4 animate-spin text-primary motion-reduce:animate-none"
+        aria-hidden
+      />
+      Updating results
+    </p>
   );
 }

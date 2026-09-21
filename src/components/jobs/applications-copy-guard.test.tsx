@@ -89,14 +89,17 @@ describe("applications copy guard", () => {
     const { container } = render(<OpeningDetailPage />);
     await screen.findByRole("heading", { level: 1 });
     assertCleanCopy(container.textContent ?? "");
-    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    // The phone sticky bar also renders a button named "Apply"; the
+    // one that submits the form lives inside the apply section.
+    const applySection = screen.getByRole("region", { name: "Apply" });
+    fireEvent.click(within(applySection).getByRole("button", { name: "Apply" }));
     const input = await screen.findByLabelText("Your name");
     assertCleanCopy(container.textContent ?? "");
     fireEvent.change(input, { target: { value: "Nadia Rahman" } });
-    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    fireEvent.click(within(applySection).getByRole("button", { name: "Apply" }));
     await screen.findByRole("alert");
     assertCleanCopy(container.textContent ?? "");
-    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    fireEvent.click(within(applySection).getByRole("button", { name: "Apply" }));
     await screen.findByText("You applied");
     assertCleanCopy(container.textContent ?? "");
   });
