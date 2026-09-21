@@ -30,7 +30,7 @@ import {
 
 const LABEL =
   "text-[11px] font-semibold uppercase tracking-wide text-muted-foreground";
-const FIELD_ERROR = "text-xs font-medium text-[#B3261E]";
+const FIELD_ERROR = "text-xs font-medium text-destructive";
 const CARD = "flex flex-col gap-5 rounded-2xl border bg-card p-5 shadow-sm sm:p-6";
 
 function Field({
@@ -418,7 +418,7 @@ function EventEditor({
           disabled={disabled}
           onClick={onRemove}
           aria-label={`Remove event ${index + 1}`}
-          className="h-9 text-[#b3261e] hover:bg-[#fbe9e7] hover:text-[#b3261e]"
+          className="h-9 text-destructive hover:bg-destructive/10 hover:text-destructive"
         >
           <Trash2 className="size-4" aria-hidden />
           Remove event

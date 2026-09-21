@@ -48,6 +48,10 @@ export function makeClubSummary(overrides: Partial<ClubSummary> = {}): ClubSumma
     memberCount: 120,
     fieldsOfStudy: ["Computer Science", "Statistics"],
     eventCount: 3,
+    foundedYear: 2018,
+    audienceYears: [1, 2, 3],
+    eventAttendanceSummary: { min: 80, max: 150 },
+    supportNeeds: ["Venue", "Prizes"],
     ...overrides,
   };
 }

@@ -20,11 +20,17 @@ vi.mock("@/lib/api/clubs", async () => {
     getMyClubProfile: vi.fn(),
     listClubs: vi.fn(),
     getClub: vi.fn(),
+    saveClubProfile: vi.fn(),
   };
 });
 
 import { useSession } from "next-auth/react";
-import { getClub, getMyClubProfile, listClubs } from "@/lib/api/clubs";
+import {
+  getClub,
+  getMyClubProfile,
+  listClubs,
+  saveClubProfile,
+} from "@/lib/api/clubs";
 import { ApiError } from "@/lib/api/errors";
 
 import ClubProfilePage from "@/app/(club)/club/profile/page";
@@ -42,7 +48,7 @@ beforeEach(() => {
     status: "authenticated",
   } as never);
   vi.mocked(getMyClubProfile).mockResolvedValue(makeClubProfile());
-  vi.mocked(listClubs).mockResolvedValue({ items: [makeClubSummary()] });
+  vi.mocked(listClubs).mockResolvedValue({ items: [makeClubSummary()], total: 1 });
   vi.mocked(getClub).mockResolvedValue(makeClubProfile({ status: "Published" }));
 });
 
@@ -72,6 +78,9 @@ describe("club copy guard", () => {
   it("builder, empty and preview", async () => {
     vi.mocked(getMyClubProfile).mockResolvedValue(null);
     const view = render(<ClubProfilePage />);
+    // Phase 2 introduces a first-visit inviting empty card; click past
+    // it to land in the empty form.
+    fireEvent.click(await screen.findByRole("button", { name: "Start writing" }));
     await screen.findByLabelText("Club name");
     assertCleanCopy(view.container.textContent ?? "");
     fireEvent.click(screen.getByRole("radio", { name: "Preview" }));
@@ -85,12 +94,32 @@ describe("club copy guard", () => {
     assertCleanCopy(view.container.textContent ?? "");
   });
 
+  it("builder first-visit inviting empty", async () => {
+    vi.mocked(getMyClubProfile).mockResolvedValue(null);
+    const view = render(<ClubProfilePage />);
+    await screen.findByText("Build your club profile");
+    assertCleanCopy(view.container.textContent ?? "");
+  });
+
+  it("builder conflict card copy on stale-update race", async () => {
+    vi.mocked(getMyClubProfile).mockResolvedValue(makeClubProfile());
+    vi.mocked(saveClubProfile).mockRejectedValue(
+      new ApiError("club_profile_conflict", "Profile changed elsewhere.", 409),
+    );
+    const view = render(<ClubProfilePage />);
+    await screen.findByDisplayValue("Data Science Club");
+    fireEvent.change(screen.getByLabelText("Club name"), { target: { value: "Data Club" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("This profile changed elsewhere");
+    assertCleanCopy(view.container.textContent ?? "");
+  });
+
   it("company list, empty and error", async () => {
     const list = render(<ClubsPage />);
     await screen.findByRole("article");
     assertCleanCopy(list.container.textContent ?? "");
     cleanup();
-    vi.mocked(listClubs).mockResolvedValue({ items: [] });
+    vi.mocked(listClubs).mockResolvedValue({ items: [], total: 0 });
     const empty = render(<ClubsPage />);
     await screen.findByText("No clubs match.");
     assertCleanCopy(empty.container.textContent ?? "");

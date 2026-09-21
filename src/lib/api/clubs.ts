@@ -9,8 +9,20 @@ import { ApiError } from "./errors";
  * `ApiError` with `errorCode`:
  *   - `club_profile_not_found` (404)
  *   - `club_profile_incomplete` (400, publish, `message` names what is missing)
+ *   - `club_profile_conflict` (409, save) — the profile changed elsewhere
+ *     since this page loaded. Two triggers: the first-save race (two
+ *     concurrent first PUTs for the same club account) and the
+ *     stale-xmin update race (someone saved after we loaded). The page
+ *     uses this constant to render the dedicated conflict card.
  *   - other 400 validation errors carry a readable `message`
  */
+
+/**
+ * Error code the backend returns on the first-save race and on the
+ * stale-xmin update race. Surface this verbatim in the page so the
+ * 409 card stays wired even if the message text changes.
+ */
+export const CLUB_PROFILE_CONFLICT_CODE = "club_profile_conflict" as const;
 
 export const SUPPORT_NEEDS = [
   "Funding",
@@ -90,6 +102,15 @@ export interface ClubProfileRequest {
   events: ClubEventRequest[];
 }
 
+/**
+ * Aggregated event attendance across a club. Both null when the club
+ * has no events that carry a typical-attendance value.
+ */
+export interface ClubEventAttendanceSummary {
+  min: number | null;
+  max: number | null;
+}
+
 export interface ClubSummary {
   id: string;
   name: string;
@@ -98,6 +119,15 @@ export interface ClubSummary {
   memberCount: number;
   fieldsOfStudy: string[];
   eventCount: number;
+  /** Years the club has existed (best-effort, may be null). */
+  foundedYear: number | null;
+  /** Study years the club's audience belongs to, sorted ascending. */
+  audienceYears: number[];
+  /** Aggregated event attendance across the club. */
+  eventAttendanceSummary: ClubEventAttendanceSummary;
+  /** Union of support needs across all the club's events, deduped and
+   *  sorted ascending. */
+  supportNeeds: string[];
 }
 
 export interface ClubFilters {
@@ -148,12 +178,15 @@ export async function unpublishClubProfile(
   return apiCall("POST", `${PROFILE}/unpublish`, { bearerToken, signal });
 }
 
-/** Company: published clubs. Empty filters are left out of the URL. */
+/** Company: published clubs. Empty filters are left out of the URL. The
+ *  returned `total` is the count of all matching rows before the server-side
+ *  `Take(MaxResults)` cap, so the caller can show a "showing N of total"
+ *  affordance only when `total > items.length`. */
 export async function listClubs(
   bearerToken: string,
   filters: ClubFilters = {},
   signal?: AbortSignal,
-): Promise<{ items: ClubSummary[] }> {
+): Promise<{ items: ClubSummary[]; total: number }> {
   const params = new URLSearchParams();
   const q = filters.q?.trim();
   const field = filters.field?.trim();

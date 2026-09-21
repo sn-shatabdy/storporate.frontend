@@ -1,5 +1,6 @@
 import { ApiError } from "@/lib/api/errors";
 import {
+  CLUB_PROFILE_CONFLICT_CODE,
   type ClubEvent,
   type ClubProfileRequest,
   type ClubProfileResponse,
@@ -348,5 +349,20 @@ export function messageForClubError(
   if (action === "publish") return "Could not publish your profile. Try again.";
   if (action === "unpublish") return "Could not unpublish your profile. Try again.";
   return "Could not save your profile. Check your connection and try again.";
+}
+
+/**
+ * True when the error is the new 409 `club_profile_conflict`. The page
+ * renders a dedicated conflict card instead of the inline form-error
+ * banner when this is true. Both the first-save race (two concurrent
+ * first PUTs) and the stale-xmin update race come back under the same
+ * error code.
+ */
+export function isClubProfileConflict(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    error.status === 409 &&
+    error.errorCode === CLUB_PROFILE_CONFLICT_CODE
+  );
 }
 

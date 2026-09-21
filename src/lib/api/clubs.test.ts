@@ -102,6 +102,24 @@ describe("club endpoints", () => {
     });
   });
 
+  it("save surfaces club_profile_conflict (409) for both race triggers", async () => {
+    const { saveClubProfile, CLUB_PROFILE_CONFLICT_CODE } = await loadClient();
+    expect(CLUB_PROFILE_CONFLICT_CODE).toBe("club_profile_conflict");
+    stubFetch(
+      json(
+        {
+          errorCode: CLUB_PROFILE_CONFLICT_CODE,
+          message: "Profile changed elsewhere.",
+        },
+        { status: 409 },
+      ),
+    );
+    await expect(saveClubProfile("tok", REQUEST)).rejects.toMatchObject({
+      errorCode: CLUB_PROFILE_CONFLICT_CODE,
+      status: 409,
+    });
+  });
+
   it("listClubs leaves empty filters out and encodes the rest", async () => {
     const { listClubs } = await loadClient();
     const fetchMock = stubFetch(json({ items: [] }));
