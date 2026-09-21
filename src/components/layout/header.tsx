@@ -68,10 +68,15 @@ export function Header() {
   // so the nav link stays highlighted if the route grows sub-paths later.
   const isVisibilityActive =
     pathname?.startsWith("/dashboard/visibility") ?? false;
+  // STOR-66 — job and internship openings (student browse + detail).
+  const isOpeningsActive = pathname?.startsWith("/dashboard/jobs") ?? false;
   // STOR-43 Phase 4 — single-link employer nav; `startsWith` so any
   // future employer sub-routes keep the active state.
   const isEmployerSearchActive =
     pathname?.startsWith("/employer/search") ?? false;
+  // STOR-66 — the employer's own openings (list, new, edit).
+  const isEmployerJobsActive =
+    pathname?.startsWith("/employer/jobs") ?? false;
 
   async function handleLogout() {
     setMenuOpen(false);
@@ -122,11 +127,12 @@ export function Header() {
       {isStudent && (
         <div className="border-b border-border/60 px-2.5 md:hidden">
           <StudentNav
-            className="flex items-center gap-1"
+            className="flex items-center gap-1 overflow-x-auto whitespace-nowrap py-1"
             isDashboardActive={isDashboardActive}
             isPortfolioActive={isPortfolioActive}
             isAdvisorActive={isAdvisorActive}
             isVisibilityActive={isVisibilityActive}
+            isOpeningsActive={isOpeningsActive}
           />
         </div>
       )}
@@ -135,6 +141,7 @@ export function Header() {
           <EmployerNav
             className="flex items-center gap-1"
             isSearchActive={isEmployerSearchActive}
+            isJobsActive={isEmployerJobsActive}
           />
         </div>
       )}
@@ -152,12 +159,14 @@ export function Header() {
               isPortfolioActive={isPortfolioActive}
               isAdvisorActive={isAdvisorActive}
               isVisibilityActive={isVisibilityActive}
+              isOpeningsActive={isOpeningsActive}
             />
           )}
           {isOrganization && (
             <EmployerNav
               className="flex items-center gap-1"
               isSearchActive={isEmployerSearchActive}
+              isJobsActive={isEmployerJobsActive}
             />
           )}
         </div>
@@ -288,12 +297,14 @@ export function StudentNav({
   isPortfolioActive,
   isAdvisorActive,
   isVisibilityActive,
+  isOpeningsActive = false,
 }: {
   className?: string;
   isDashboardActive: boolean;
   isPortfolioActive: boolean;
   isAdvisorActive: boolean;
   isVisibilityActive: boolean;
+  isOpeningsActive?: boolean;
 }) {
   return (
     <nav
@@ -314,6 +325,10 @@ export function StudentNav({
           moves through the app: explore → reflect → share. */}
       <StudentNavLink href="/dashboard/visibility" active={isVisibilityActive}>
         Visibility
+      </StudentNavLink>
+      {/* STOR-66 — browse jobs and internships. */}
+      <StudentNavLink href="/dashboard/jobs" active={isOpeningsActive}>
+        Openings
       </StudentNavLink>
     </nav>
   );
@@ -360,9 +375,11 @@ function StudentNavLink({
 export function EmployerNav({
   className,
   isSearchActive,
+  isJobsActive = false,
 }: {
   className?: string;
   isSearchActive: boolean;
+  isJobsActive?: boolean;
 }) {
   return (
     <nav
@@ -371,6 +388,9 @@ export function EmployerNav({
     >
       <StudentNavLink href="/employer/search" active={isSearchActive}>
         Search
+      </StudentNavLink>
+      <StudentNavLink href="/employer/jobs" active={isJobsActive}>
+        Jobs
       </StudentNavLink>
     </nav>
   );

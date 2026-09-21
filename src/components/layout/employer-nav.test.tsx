@@ -32,4 +32,18 @@ describe("EmployerNav", () => {
     const link = screen.getByRole("link", { name: "Search" });
     expect(link).not.toHaveAttribute("aria-current");
   });
+
+  it("renders a Jobs link to /employer/jobs and marks it active", () => {
+    const { rerender } = render(
+      <EmployerNav isSearchActive={false} isJobsActive={false} />,
+    );
+    const link = screen.getByRole("link", { name: "Jobs" });
+    expect(link).toHaveAttribute("href", "/employer/jobs");
+    expect(link).not.toHaveAttribute("aria-current");
+    rerender(<EmployerNav isSearchActive={false} isJobsActive={true} />);
+    expect(screen.getByRole("link", { name: "Jobs" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
 });
