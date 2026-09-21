@@ -37,6 +37,14 @@ export interface PortfolioItem {
   // single bulk fetch against the backend's `PortfolioSkillFindings` table
   // means this stays N+1-free (see STOR-39 Phase 1).
   skills: PortfolioSkillPreview[];
+  // STOR-44 Phase 3: per-item "share original with employers" flag. When
+  // true, an employer who finds the student may open this item's original
+  // file/link AND read the AI's written reason for each skill rating (the
+  // latter is the new capability introduced in Phase 3 — the original file
+  // itself was already gated by a per-item toggle in an earlier phase, but
+  // the per-skill reasoning visibility is new). Default false everywhere
+  // except where the student has explicitly turned it on.
+  shareOriginalWithEmployers: boolean;
 }
 
 /** Condensed skill-preview shape returned by `GET /api/portfolio/items` —
@@ -261,5 +269,31 @@ export async function retryPortfolioItemAnalysis(
     "POST",
     `/api/portfolio/items/${id}/analysis/retry`,
     { bearerToken: accessToken },
+  );
+}
+
+/** `PUT /api/portfolio/items/{id}/sharing` — flips the per-item
+ * `shareOriginalWithEmployers` flag for the signed-in student. Body is
+ * `{ shareOriginal: boolean }`. Returns 200 with the updated
+ * `PortfolioItemResponse` (same shape as a list entry, including the new
+ * flag value) on success. Throws an `ApiError` carrying the backend's
+ * `errorCode`/`status` for non-2xx responses — `404` for an unknown item,
+ * `401` when unauthenticated, `403` for non-Students. The `signal` is
+ * forwarded to `apiCall` so the caller can cancel an in-flight toggle if
+ * the student unmounts the page or starts another toggle. */
+export async function updateItemSharing(
+  bearerToken: string,
+  id: string,
+  shareOriginal: boolean,
+  signal?: AbortSignal,
+): Promise<PortfolioItem> {
+  return apiCall<PortfolioItem>(
+    "PUT",
+    `/api/portfolio/items/${id}/sharing`,
+    {
+      bearerToken,
+      signal,
+      body: { shareOriginal },
+    },
   );
 }

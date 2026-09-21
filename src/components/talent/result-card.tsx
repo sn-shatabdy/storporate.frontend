@@ -1,5 +1,8 @@
 "use client";
 
+import Link from "next/link";
+import { ArrowRight } from "lucide-react";
+
 import type { TalentSearchResultItem } from "@/lib/api/talentSearch";
 
 import { CitedItemList } from "./cited-item-list";
@@ -10,7 +13,8 @@ import {
 import { SkillBandPill } from "./skill-band-pill";
 
 /**
- * STOR-43 Phase 4 — a single candidate in the search results.
+ * STOR-43 Phase 4 + STOR-44 Phase 4 — a single candidate in the
+ * search results.
  *
  * Layout (per the approved design):
  *   - Row 1: initials tile + name (Space Grotesk, 17px, semibold) +
@@ -21,10 +25,9 @@ import { SkillBandPill } from "./skill-band-pill";
  *   - Row 3: the plain-language reason.
  *   - Row 4: matched-skills pills (only when there are any).
  *   - Row 5: cited items, only when there are any.
- *
- * No links, no email, no contact button — employers see the basics
- * and can run a follow-up through the contact surface that lives
- * outside this feature.
+ *   - Row 6 (STOR-44): "View portfolio" link to
+ *     `/employer/candidates/{candidateId}` — wraps a Next `<Link>`
+ *     styled as an outline button. Right-aligned with a top border.
  */
 export interface ResultCardProps {
   result: TalentSearchResultItem;
@@ -99,6 +102,20 @@ export function ResultCard({ result }: ResultCardProps) {
       )}
 
       {hasCitedItems && <CitedItemList items={result.citedItems} />}
+
+      <div
+        className="flex justify-end border-t pt-3.5"
+        style={{ borderColor: "var(--border)" }}
+      >
+        <Link
+          href={`/employer/candidates/${result.candidateId}`}
+          className="inline-flex h-9 items-center gap-2 rounded-[10px] border bg-white px-3.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          style={{ borderColor: "#e7dfc0" }}
+        >
+          View portfolio
+          <ArrowRight className="size-4" aria-hidden />
+        </Link>
+      </div>
     </li>
   );
 }

@@ -16,6 +16,21 @@ function buildUrl(path: string): string {
   return `${getApiBaseUrl()}${path}`;
 }
 
+/**
+ * Build the standard JSON Authorization header. Exported so the dedicated
+ * binary / non-JSON helpers (e.g. `fetchCandidateOriginal`) reuse the same
+ * bearer-token wire format as {@link apiCall} instead of duplicating it.
+ * Returns an empty `Authorization` value when no token is supplied —
+ * matches the historical `apiCall` behavior of only attaching the header
+ * when a token is present.
+ */
+export function buildAuthHeader(
+  bearerToken: string | undefined,
+): { Authorization?: string } {
+  if (!bearerToken) return {};
+  return { Authorization: `Bearer ${bearerToken}` };
+}
+
 export async function throwForErrorResponse(response: Response): Promise<never> {
   const raw = await response.text();
   let parsed: { errorCode?: string; message?: string } = {};
@@ -30,6 +45,24 @@ export async function throwForErrorResponse(response: Response): Promise<never> 
     parsed.message ?? `Request failed (${response.status})`,
     response.status,
   );
+}
+
+/**
+ * Read an error body and translate it into an {@link ApiError}, matching
+ * the wire contract `apiCall` enforces. Exported so callers that need to
+ * read a non-JSON success body (e.g. the binary original-file endpoint)
+ * can still normalize non-2xx responses into the same error shape without
+ * duplicating the JSON-parsing-then-fallback logic.
+ *
+ * Returns `null` on 2xx so the caller can short-circuit; throws on any
+ * non-OK status so the caller can let it bubble. The 2xx body is
+ * intentionally discarded — callers that need it should read it themselves.
+ */
+export async function ensureOkOrThrowApiError(
+  response: Response,
+): Promise<null> {
+  if (response.ok) return null;
+  return throwForErrorResponse(response);
 }
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";

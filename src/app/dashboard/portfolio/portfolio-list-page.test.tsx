@@ -757,3 +757,52 @@ describe("PortfolioPage — design-spec regressions", () => {
     // so the class-level assertions above are the contract.
   });
 });
+
+// ---------------------------------------------------------------------------
+// STOR-44 Phase 3 — the list page surfaces the per-item `shareOriginalWithEmployers`
+// flag via a "Shared with employers" pill on rows where the flag is true.
+// The pill must NOT appear on rows where the flag is false. Match by
+// data-testid (icon-and-label combination would otherwise overlap with
+// the page's status-pill labels).
+// ---------------------------------------------------------------------------
+
+describe("PortfolioPage — STOR-44 Shared with employers pill", () => {
+  it("renders the pill only for items whose shareOriginalWithEmployers is true", async () => {
+    const shared = makeItem({
+      id: "shared",
+      label: "Shared Item",
+      shareOriginalWithEmployers: true,
+    });
+    const notShared = makeItem({
+      id: "not-shared",
+      label: "Not Shared Item",
+      shareOriginalWithEmployers: false,
+    });
+    setupMocks([shared, notShared]);
+
+    render(<PortfolioPage />);
+
+    // Wait for both rows to render.
+    expect(await screen.findByText("Shared Item")).toBeInTheDocument();
+    expect(screen.getByText("Not Shared Item")).toBeInTheDocument();
+
+    // Exactly one pill, for the shared row. `getAllByTestId` lets us assert
+    // the COUNT (1) — if the pill leaked into the not-shared row too
+    // there would be 2.
+    expect(
+      screen.getAllByTestId("shared-with-employers-pill"),
+    ).toHaveLength(1);
+  });
+
+  it("does NOT render the pill when no item has the flag set", async () => {
+    const a = makeItem({ id: "a", label: "A", shareOriginalWithEmployers: false });
+    const b = makeItem({ id: "b", label: "B", shareOriginalWithEmployers: false });
+    setupMocks([a, b]);
+
+    render(<PortfolioPage />);
+    await screen.findByText("A");
+    expect(
+      screen.queryByTestId("shared-with-employers-pill"),
+    ).not.toBeInTheDocument();
+  });
+});

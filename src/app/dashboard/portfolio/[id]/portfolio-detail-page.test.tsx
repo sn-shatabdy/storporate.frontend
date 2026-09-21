@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 // Mocks MUST be hoisted before the page module is imported.
 vi.mock("next-auth/react", () => ({
@@ -24,6 +24,23 @@ vi.mock("@/lib/api/portfolio", async () => {
     listPortfolioItems: vi.fn(),
     getPortfolioItemAnalysis: vi.fn(),
     retryPortfolioItemAnalysis: vi.fn(),
+    updateItemSharing: vi.fn(),
+  };
+});
+
+vi.mock("@/lib/api/discovery", async () => {
+  // STOR-44 Phase 3: the detail page now fetches the searchable profile
+  // to drive the per-item sharing card. Mock the module so the page's
+  // getSearchableProfile call doesn't reach the network — each test
+  // overrides `mockReturnValue` for the success path or
+  // `mockRejectedValue` for the failure path.
+  const actual =
+    await vi.importActual<typeof import("@/lib/api/discovery")>(
+      "@/lib/api/discovery",
+    );
+  return {
+    ...actual,
+    getSearchableProfile: vi.fn(),
   };
 });
 
@@ -36,6 +53,7 @@ import {
   type PortfolioItem,
   type PortfolioItemAnalysis,
 } from "@/lib/api/portfolio";
+import { getSearchableProfile } from "@/lib/api/discovery";
 
 import {
   makePortfolioItem,
@@ -72,6 +90,23 @@ function setupMocks(item: PortfolioItem, analysis: PortfolioItemAnalysis) {
     hasNext: false,
   });
   vi.mocked(getPortfolioItemAnalysis).mockResolvedValue(analysis);
+  // Default: the student has NOT turned on employer visibility. Tests
+  // that exercise the on-state of the sharing card override this.
+  vi.mocked(getSearchableProfile).mockResolvedValue({
+    isSearchable: false,
+    displayName: "",
+    headline: null,
+    university: null,
+    fieldOfStudy: null,
+    studyYear: null,
+    showHeadline: true,
+    showUniversity: true,
+    showFieldOfStudy: true,
+    showStudyYear: true,
+    optedInAt: null,
+    updatedAt: "2026-09-21T00:00:00Z",
+    visibleItemCount: 0,
+  });
 }
 
 describe("PortfolioItemDetailPage — Analyzed", () => {
@@ -403,5 +438,186 @@ describe("PortfolioItemDetailPage — Retry should not blank the page", () => {
     expect(
       screen.getByRole("heading", { name: /capstone project writeup/i }),
     ).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// STOR-44 Phase 3 — ItemSharingCard integration. The detail page now renders
+// the per-item "Employer access" card below the header. The card's
+// `isSearchable` prop is driven by the parallel `getSearchableProfile` call;
+// the card's PUT goes through `updateItemSharing` (mocked at the top).
+// ---------------------------------------------------------------------------
+
+describe("PortfolioItemDetailPage — STOR-44 Employer access card", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(useSession).mockReturnValue({
+      data: { accessToken: ACCESS_TOKEN } as never,
+      status: "authenticated",
+    } as never);
+    vi.mocked(useParams).mockReturnValue({ id: ITEM_ID } as never);
+  });
+
+  it("renders the card below the item header with the item's sharing flag", async () => {
+    const item = makeItem({ shareOriginalWithEmployers: true });
+    const analysis = makeAnalysis();
+    setupMocks(item, analysis);
+    // Searchable so the switch is enabled and reflects the item's flag.
+    vi.mocked(getSearchableProfile).mockResolvedValue({
+      isSearchable: true,
+      displayName: "",
+      headline: null,
+      university: null,
+      fieldOfStudy: null,
+      studyYear: null,
+      showHeadline: true,
+      showUniversity: true,
+      showFieldOfStudy: true,
+      showStudyYear: true,
+      optedInAt: null,
+      updatedAt: "2026-09-21T00:00:00Z",
+      visibleItemCount: 1,
+    } as never);
+
+    render(<PortfolioItemDetailPage />);
+
+    // Header still renders.
+    expect(
+      await screen.findByRole("heading", { name: /capstone project writeup/i }),
+    ).toBeInTheDocument();
+    // The card's "Employer access" heading is below the item header.
+    expect(
+      screen.getByRole("heading", { name: /^employer access$/i }),
+    ).toBeInTheDocument();
+    // Switch reflects the item's persisted value (true).
+    const sw = screen.getByRole("switch", { name: /employer access/i });
+    expect(sw).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("renders the disabled state when getSearchableProfile resolves with isSearchable=false", async () => {
+    const item = makeItem({ shareOriginalWithEmployers: false });
+    const analysis = makeAnalysis();
+    setupMocks(item, analysis);
+    // setupMocks already returns isSearchable: false by default; just be
+    // explicit for this case.
+    vi.mocked(getSearchableProfile).mockResolvedValue({
+      isSearchable: false,
+      displayName: "",
+      headline: null,
+      university: null,
+      fieldOfStudy: null,
+      studyYear: null,
+      showHeadline: true,
+      showUniversity: true,
+      showFieldOfStudy: true,
+      showStudyYear: true,
+      optedInAt: null,
+      updatedAt: "2026-09-21T00:00:00Z",
+      visibleItemCount: 0,
+    });
+
+    render(<PortfolioItemDetailPage />);
+
+    // Header + the rest of the page render regardless of the profile state.
+    expect(
+      await screen.findByRole("heading", { name: /capstone project writeup/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/skills found/i)).toBeInTheDocument();
+    // The disabled card state shows.
+    expect(
+      screen.getByText(/turn on employer visibility to use this\./i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /go to employer visibility/i }),
+    ).toHaveAttribute("href", "/dashboard/visibility");
+    // Switch is locked off.
+    const sw = screen.getByRole("switch", { name: /employer access/i });
+    expect(sw).toBeDisabled();
+    expect(sw).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("falls back to the disabled state (and keeps the rest of the page rendering) when getSearchableProfile rejects", async () => {
+    const item = makeItem({ shareOriginalWithEmployers: true });
+    const analysis = makeAnalysis();
+    setupMocks(item, analysis);
+    // A profile fetch failure must not break the page; the card just
+    // renders its disabled state.
+    vi.mocked(getSearchableProfile).mockRejectedValue(new Error("network down"));
+
+    render(<PortfolioItemDetailPage />);
+
+    // Header + the skills card both render — page is alive.
+    expect(
+      await screen.findByRole("heading", { name: /capstone project writeup/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/skills found/i)).toBeInTheDocument();
+
+    // The card rendered in its disabled state (locked off).
+    await waitFor(() => {
+      expect(
+        screen.getByText(/turn on employer visibility to use this\./i),
+      ).toBeInTheDocument();
+    });
+    const sw = screen.getByRole("switch", { name: /employer access/i });
+    expect(sw).toBeDisabled();
+  });
+
+  it("a successful sharing flip updates the card's persisted flag without re-fetching analysis", async () => {
+    const item = makeItem({ shareOriginalWithEmployers: false });
+    const analysis = makeAnalysis();
+    setupMocks(item, analysis);
+    vi.mocked(getSearchableProfile).mockResolvedValue({
+      isSearchable: true,
+      displayName: "",
+      headline: null,
+      university: null,
+      fieldOfStudy: null,
+      studyYear: null,
+      showHeadline: true,
+      showUniversity: true,
+      showFieldOfStudy: true,
+      showStudyYear: true,
+      optedInAt: null,
+      updatedAt: "2026-09-21T00:00:00Z",
+      visibleItemCount: 1,
+    });
+
+    const { updateItemSharing } = await import("@/lib/api/portfolio");
+    vi.mocked(updateItemSharing).mockResolvedValue({
+      ...item,
+      shareOriginalWithEmployers: true,
+    });
+
+    render(<PortfolioItemDetailPage />);
+
+    // Wait for the initial render + the initial fetches to settle, then
+    // snapshot the analysis call count BEFORE we trigger the toggle.
+    const sw = await screen.findByRole("switch", { name: /employer access/i });
+    expect(sw).toHaveAttribute("aria-checked", "false");
+    await waitFor(() => {
+      expect(screen.getByText(/skills found/i)).toBeInTheDocument();
+    });
+    const analysisCallsBefore = vi.mocked(getPortfolioItemAnalysis).mock.calls.length;
+
+    fireEvent.click(sw);
+
+    await waitFor(() => {
+      expect(updateItemSharing).toHaveBeenCalledWith(
+        ACCESS_TOKEN,
+        item.id,
+        true,
+        expect.anything(),
+      );
+    });
+
+    await waitFor(() => {
+      expect(sw).toHaveAttribute("aria-checked", "true");
+    });
+
+    // No extra analysis fetches were triggered — the shareOriginal flag
+    // is independent of the AI analysis rollup.
+    expect(vi.mocked(getPortfolioItemAnalysis).mock.calls.length).toBe(
+      analysisCallsBefore,
+    );
   });
 });

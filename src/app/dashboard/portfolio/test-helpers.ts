@@ -29,6 +29,10 @@ export function makePortfolioItem(
     analysisStatus: "Analyzed",
     lastAnalyzedAt: DEFAULT_LAST_ANALYZED_AT,
     skills: [],
+    // STOR-44 Phase 3: default false so existing tests that don't care
+    // about the sharing flag keep their pre-phase-3 behavior (no "Shared
+    // with employers" pill, card renders the off-state copy).
+    shareOriginalWithEmployers: false,
     ...overrides,
   };
 }

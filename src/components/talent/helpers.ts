@@ -189,3 +189,58 @@ export function messageForTalentSearchError(
       return null;
   }
 }
+
+/** Human-readable short label for a MIME type. The set is deliberately
+ *  small (the kinds a student typically shares with employers) and
+ *  falls back to "File" for unknown types. Used by the candidate
+ *  item card to render the "PDF · 2.4 MB" subtitle under the
+ *  "Open original" row. The labels mirror the agreed copy in the
+ *  Phase 4 design spec — do NOT tweak without re-sign-off; the test
+ *  pins every value below. */
+export function typeLabelFor(contentType: string | null): string {
+  if (!contentType) return "File";
+  const lowered = contentType.toLowerCase();
+  if (lowered === "application/pdf") return "PDF";
+  if (lowered === "image/png" || lowered === "image/jpeg" ||
+      lowered === "image/gif" || lowered === "image/webp") {
+    return "Image";
+  }
+  if (lowered === "video/mp4" || lowered === "video/webm") return "Video";
+  if (lowered === "application/msword" ||
+      lowered === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+    return "Word";
+  }
+  if (lowered === "application/vnd.ms-powerpoint" ||
+      lowered === "application/vnd.openxmlformats-officedocument.presentationml.presentation") {
+    return "PowerPoint";
+  }
+  if (lowered === "application/vnd.ms-excel" ||
+      lowered === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") {
+    return "Excel";
+  }
+  if (lowered === "text/plain") return "Text";
+  if (lowered === "text/csv") return "CSV";
+  if (lowered === "application/zip" || lowered === "application/x-zip-compressed") {
+    return "ZIP";
+  }
+  return "File";
+}
+
+/** Format a byte count as a short, single-decimal string ("2.4 MB",
+ *  "340 KB", "12 B") using 1024-unit buckets and one decimal place
+ *  above the KB threshold. Bytes below 1024 are rendered as a
+ *  bare integer so a small attachment reads as "12 B" rather than
+ *  "12.0 B". Returns null when size is null (the original metadata
+ *  didn't record a size, so the card renders the file name only). */
+export function formatFileSize(sizeBytes: number | null): string | null {
+  if (sizeBytes === null || sizeBytes === undefined) return null;
+  if (sizeBytes < 0 || Number.isNaN(sizeBytes)) return null;
+  if (sizeBytes < 1024) return `${sizeBytes} B`;
+  if (sizeBytes < 1024 * 1024) {
+    return `${(sizeBytes / 1024).toFixed(1)} KB`;
+  }
+  if (sizeBytes < 1024 * 1024 * 1024) {
+    return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  return `${(sizeBytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
