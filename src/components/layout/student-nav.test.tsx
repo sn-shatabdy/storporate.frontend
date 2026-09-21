@@ -98,4 +98,31 @@ describe("StudentNav", () => {
       "page",
     );
   });
+
+  it("renders an Applications link to /dashboard/applications and marks it active", () => {
+    const { rerender } = render(
+      <StudentNav
+        isDashboardActive={false}
+        isPortfolioActive={false}
+        isAdvisorActive={false}
+        isVisibilityActive={false}
+      />,
+    );
+    const link = screen.getByRole("link", { name: "Applications" });
+    expect(link).toHaveAttribute("href", "/dashboard/applications");
+    expect(link).not.toHaveAttribute("aria-current");
+    rerender(
+      <StudentNav
+        isDashboardActive={false}
+        isPortfolioActive={false}
+        isAdvisorActive={false}
+        isVisibilityActive={false}
+        isApplicationsActive={true}
+      />,
+    );
+    expect(screen.getByRole("link", { name: "Applications" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
 });

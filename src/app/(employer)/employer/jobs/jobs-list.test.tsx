@@ -145,4 +145,23 @@ describe("employer openings list", () => {
     expect(await screen.findByText("Opening posted.")).toBeInTheDocument();
     await waitFor(() => expect(routerMock.replace).toHaveBeenCalledWith("/employer/jobs"));
   });
+
+  it("links each posting to its applicants", async () => {
+    vi.mocked(listMyPostings).mockResolvedValue({
+      items: [
+        makePosting({ id: "a", status: "Open" }),
+        makePosting({ id: "c", status: "Closed" }),
+      ],
+    });
+    render(<EmployerJobsPage />);
+    const cards = await screen.findAllByRole("article");
+    expect(within(cards[0]).getByRole("link", { name: "Applicants" })).toHaveAttribute(
+      "href",
+      "/employer/jobs/a/applicants",
+    );
+    expect(within(cards[1]).getByRole("link", { name: "Applicants" })).toHaveAttribute(
+      "href",
+      "/employer/jobs/c/applicants",
+    );
+  });
 });

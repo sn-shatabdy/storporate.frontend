@@ -14,6 +14,7 @@ import {
 import { AdvisorErrorState } from "@/components/advisor/advisor-error-state";
 import { Button } from "@/components/ui/button";
 import {
+  AppliedPill,
   FitPill,
   KindPill,
   truncatedList,
@@ -232,6 +233,7 @@ function OpeningCard({ job }: { job: JobWithFit }) {
       </div>
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
         <KindPill kind={job.kind} />
+        {job.application ? <AppliedPill /> : null}
         <span className="text-sm text-muted-foreground">
           {workModeAndLocation(job.workMode, job.location)}
         </span>

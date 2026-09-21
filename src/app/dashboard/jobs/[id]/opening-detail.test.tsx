@@ -81,4 +81,25 @@ describe("student opening detail", () => {
     fireEvent.click(screen.getByRole("button", { name: /Try again/ }));
     expect(await screen.findByRole("heading", { level: 1 })).toBeInTheDocument();
   });
+
+  it("shows an Apply button near the header when not applied", async () => {
+    vi.mocked(getJob).mockResolvedValue(makeJob());
+    render(<OpeningDetailPage />);
+    expect(await screen.findByRole("button", { name: "Apply" })).toBeInTheDocument();
+    expect(screen.queryByText("You applied")).not.toBeInTheDocument();
+  });
+
+  it("shows the applied state with the current status when already applied", async () => {
+    vi.mocked(getJob).mockResolvedValue(
+      makeJob({ application: { id: "app-1", status: "Viewed" } }),
+    );
+    render(<OpeningDetailPage />);
+    expect(await screen.findByText("You applied")).toBeInTheDocument();
+    expect(screen.getByText("Viewed")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Apply" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View your applications" })).toHaveAttribute(
+      "href",
+      "/dashboard/applications",
+    );
+  });
 });

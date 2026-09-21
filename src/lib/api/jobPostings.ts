@@ -53,8 +53,21 @@ export interface JobFit {
   missing: string[];
 }
 
+/** STOR-67: the caller's application to a posting, or null when none. */
+export type ApplicationStatus =
+  | "Submitted"
+  | "Viewed"
+  | "Shortlisted"
+  | "NotSelected";
+
+export interface JobApplicationRef {
+  id: string;
+  status: ApplicationStatus;
+}
+
 export interface JobWithFit extends JobPosting {
   fit: JobFit;
+  application: JobApplicationRef | null;
 }
 
 export interface JobFilters {
