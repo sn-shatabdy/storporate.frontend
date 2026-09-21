@@ -71,4 +71,31 @@ describe("StudentNav", () => {
       screen.getByRole("link", { name: "Dashboard" }),
     ).toHaveAttribute("aria-current", "page");
   });
+
+  it("renders an Openings link to /dashboard/jobs and marks it active", () => {
+    const { rerender } = render(
+      <StudentNav
+        isDashboardActive={false}
+        isPortfolioActive={false}
+        isAdvisorActive={false}
+        isVisibilityActive={false}
+      />,
+    );
+    const link = screen.getByRole("link", { name: "Openings" });
+    expect(link).toHaveAttribute("href", "/dashboard/jobs");
+    expect(link).not.toHaveAttribute("aria-current");
+    rerender(
+      <StudentNav
+        isDashboardActive={false}
+        isPortfolioActive={false}
+        isAdvisorActive={false}
+        isVisibilityActive={false}
+        isOpeningsActive={true}
+      />,
+    );
+    expect(screen.getByRole("link", { name: "Openings" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
 });
