@@ -50,9 +50,9 @@ describe("student opening detail", () => {
     const rows = within(screen.getByRole("region", { name: "How you fit" })).getAllByRole("listitem");
     expect(rows).toHaveLength(3);
     const strong = within(rows[0]).getByText("Strong");
-    expect(strong).toHaveStyle({ backgroundColor: "#e6f4ea", color: "#1e7b34" });
+    expect(strong).toHaveClass("bg-success-soft", "text-success");
     const developing = within(rows[1]).getByText("Developing");
-    expect(developing).toHaveStyle({ backgroundColor: "#fbeee7", color: "#a4460f" });
+    expect(developing).toHaveClass("bg-warning-soft", "text-warning");
     expect(rows[2]).toHaveTextContent("SQL");
     expect(rows[2]).toHaveTextContent("Not shown yet");
   });

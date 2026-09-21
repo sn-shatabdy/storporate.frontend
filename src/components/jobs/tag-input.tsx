@@ -8,9 +8,10 @@ import { cn } from "cn";
 import { addSkills, LIMITS } from "./posting-helpers";
 
 /**
- * Skill tag input. Enter or comma adds the typed skill, Backspace on an empty
- * box removes the last one, and every skill is a removable pill. The draft
- * text lives in the parent so a submit can include a half typed skill.
+ * STOR-66 Phase 2 — skill tag input. Enter or comma adds the typed
+ * skill, Backspace on an empty box removes the last one, and every skill
+ * is a removable pill in the info-blue palette. The draft text lives in
+ * the parent so a submit can include a half typed skill.
  */
 export const TagInput = forwardRef<
   HTMLInputElement,
@@ -45,7 +46,7 @@ export const TagInput = forwardRef<
     describedBy,
     maxItems = LIMITS.skillsMax,
     addItems = addSkills,
-    placeholder = "Type a skill and press Enter",
+    placeholder = "Add a skill",
   },
   ref,
 ) {
@@ -67,18 +68,18 @@ export const TagInput = forwardRef<
   }
 
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col gap-1.5">
     <div
       className={cn(
-        "flex min-h-11 flex-wrap items-center gap-1.5 rounded-xl border bg-background px-2.5 py-2 focus-within:ring-2 focus-within:ring-ring/40",
-        error ? "border-[#b3261e]" : "border-input",
+        "flex min-h-[52px] flex-wrap items-center gap-2 rounded-[10px] border bg-background px-2.5 py-2 focus-within:ring-2 focus-within:ring-ring/40",
+        error ? "border-danger" : "border-border",
         disabled && "opacity-60",
       )}
     >
       {skills.map((skill) => (
         <span
           key={skill}
-          className="inline-flex items-center gap-1 rounded-full bg-accent py-[3px] pl-2.5 pr-1 text-[12px] font-medium text-[#345a73]"
+          className="inline-flex items-center gap-1.5 rounded-full bg-info-soft py-[3px] pl-3 pr-1 text-[13px] font-bold text-info"
         >
           {skill}
           <button
@@ -86,9 +87,9 @@ export const TagInput = forwardRef<
             disabled={disabled}
             aria-label={`Remove ${skill}`}
             onClick={() => onSkillsChange(skills.filter((s) => s !== skill))}
-            className="inline-flex size-5 items-center justify-center rounded-full text-[#345a73] hover:bg-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            className="inline-flex size-[22px] items-center justify-center rounded-full text-info hover:bg-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
-            <X className="size-3" aria-hidden />
+            <X className="size-3" strokeWidth={2.5} aria-hidden />
           </button>
         </span>
       ))}
@@ -123,11 +124,11 @@ export const TagInput = forwardRef<
         onBlur={() => {
           commit(draft);
         }}
-        className="min-w-[10rem] flex-1 bg-transparent py-1 text-sm text-foreground outline-none placeholder:text-muted-foreground"
+        className="min-w-[10rem] flex-1 bg-transparent py-1 text-[15px] text-foreground outline-none placeholder:text-muted-foreground"
       />
     </div>
       {message ? (
-        <p id={noticeId} className="mt-1.5 text-xs font-medium text-[#B3261E]">
+        <p id={noticeId} role="alert" className="text-xs font-medium text-danger">
           {message}
         </p>
       ) : null}

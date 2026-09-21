@@ -32,11 +32,11 @@ beforeEach(() => {
 
 afterEach(() => cleanup());
 
-const FIT_COLORS: Record<FitLabel, { bg: string; fg: string }> = {
-  "Strong match": { bg: "#e6f4ea", fg: "#1e7b34" },
-  "Good match": { bg: "#e7f0ed", fg: "#345a73" },
-  "Early match": { bg: "#fbeee7", fg: "#a4460f" },
-  "Not yet": { bg: "#f3efdd", fg: "#6e6488" },
+const FIT_TOKEN_CLASS: Record<FitLabel, { bg: string; fg: string }> = {
+  "Strong match": { bg: "bg-success-soft", fg: "text-success" },
+  "Good match": { bg: "bg-info-soft", fg: "text-info" },
+  "Early match": { bg: "bg-warning-soft", fg: "text-warning" },
+  "Not yet": { bg: "bg-secondary", fg: "text-muted-foreground" },
 };
 
 describe("student openings list", () => {
@@ -46,16 +46,14 @@ describe("student openings list", () => {
     expect(screen.getByText("Loading openings.")).toBeInTheDocument();
   });
 
-  it.each(Object.keys(FIT_COLORS) as FitLabel[])("renders the %s pill with its colors", async (label) => {
+  it.each(Object.keys(FIT_TOKEN_CLASS) as FitLabel[])("renders the %s pill with its colors", async (label) => {
     vi.mocked(listJobs).mockResolvedValue({
       items: [makeJob({ fit: { label, matched: [], missing: ["SQL"] } })],
     });
     render(<OpeningsPage />);
     const pill = await screen.findByText(label);
-    expect(pill).toHaveStyle({
-      backgroundColor: FIT_COLORS[label].bg,
-      color: FIT_COLORS[label].fg,
-    });
+    expect(pill).toHaveClass(FIT_TOKEN_CLASS[label].bg);
+    expect(pill).toHaveClass(FIT_TOKEN_CLASS[label].fg);
   });
 
   it("shows title link, company, kind, mode, and You have and To build lines", async () => {

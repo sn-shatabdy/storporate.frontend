@@ -42,13 +42,27 @@ const BODY = {
 describe("employer endpoints", () => {
   it("listMyPostings GETs the collection with the bearer token", async () => {
     const { listMyPostings } = await loadClient();
-    const fetchMock = stubFetch(json({ items: [] }));
+    const fetchMock = stubFetch(json({ items: [], counts: { open: 0, paused: 0, closed: 0, total: 0 } }));
     const result = await listMyPostings("tok");
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(`${API_BASE}/api/discovery/job-postings`);
     expect(init.method).toBe("GET");
     expect(init.headers.Authorization).toBe("Bearer tok");
-    expect(result).toEqual({ items: [] });
+    expect(result.counts.total).toBe(0);
+  });
+
+  it("listMyPostings sends status and a trimmed q, and skips them when empty", async () => {
+    const { listMyPostings } = await loadClient();
+    const fetchMock = stubFetch(json({ items: [], counts: { open: 0, paused: 0, closed: 0, total: 0 } }));
+    await listMyPostings("tok", { status: "Open", q: "  power bi " });
+    const url = new URL(fetchMock.mock.calls[0][0]);
+    expect(url.searchParams.get("status")).toBe("Open");
+    expect(url.searchParams.get("q")).toBe("power bi");
+
+    const second = stubFetch(json({ items: [], counts: { open: 0, paused: 0, closed: 0, total: 0 } }));
+    await listMyPostings("tok", { q: "   " });
+    const secondUrl = new URL(second.mock.calls[0][0]);
+    expect(secondUrl.searchParams.get("q")).toBeNull();
   });
 
   it("getMyPosting GETs one posting with the id encoded", async () => {
@@ -104,6 +118,20 @@ describe("employer endpoints", () => {
       json({ errorCode: "job_posting_not_found", message: "x" }, { status: 404 }),
     );
     await expect(updatePosting("tok", "j1", BODY)).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it("maps job_posting_conflict and the phase 1 400 codes through ApiError", async () => {
+    const { updatePosting } = await loadClient();
+    stubFetch(
+      json(
+        { errorCode: "job_posting_compensation_invalid", message: "x" },
+        { status: 400 },
+      ),
+    );
+    await expect(updatePosting("tok", "j1", BODY)).rejects.toMatchObject({
+      errorCode: "job_posting_compensation_invalid",
+      status: 400,
+    });
   });
 });
 

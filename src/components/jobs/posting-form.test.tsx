@@ -29,7 +29,7 @@ function renderForm() {
   );
 }
 
-function type(label: string, value: string) {
+function type(label: string | RegExp, value: string) {
   fireEvent.change(screen.getByLabelText(label), { target: { value } });
 }
 
@@ -37,7 +37,7 @@ function fillValid() {
   type("Title", "Junior data analyst");
   type("Company name", "Acme Analytics");
   type("Description", "Build dashboards and clean sales data for the team.");
-  const tags = screen.getByLabelText("Required skills");
+  const tags = screen.getByLabelText("Skills students need");
   fireEvent.change(tags, { target: { value: "Power BI" } });
   fireEvent.keyDown(tags, { key: "Enter" });
 }
@@ -70,14 +70,21 @@ describe("PostingForm validation", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Remote" }));
     fireEvent.click(screen.getByRole("button", { name: "Post opening" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
-    expect(onSubmit).toHaveBeenCalledWith({
-      title: "Junior data analyst",
-      kind: "Internship",
-      companyName: "Acme Analytics",
-      location: null,
-      workMode: "Remote",
-      description: "Build dashboards and clean sales data for the team.",
-      requiredSkills: ["Power BI"],
+    const req = onSubmit.mock.calls[0][0];
+    expect(req.title).toBe("Junior data analyst");
+    expect(req.kind).toBe("Internship");
+    expect(req.companyName).toBe("Acme Analytics");
+    expect(req.location).toBeNull();
+    expect(req.workMode).toBe("Remote");
+    expect(req.description).toBe("Build dashboards and clean sales data for the team.");
+    expect(req.requiredSkills).toEqual(["Power BI"]);
+    // Phase 2 fields default to no deadline, one opening, no pay.
+    expect(req.applicationDeadline).toBeNull();
+    expect(req.openings).toBe(1);
+    expect(req.compensation).toEqual({
+      min: null,
+      max: null,
+      visibleToStudents: false,
     });
   });
 
@@ -86,7 +93,7 @@ describe("PostingForm validation", () => {
     type("Title", "Junior data analyst");
     type("Company name", "Acme Analytics");
     type("Description", "Build dashboards and clean sales data for the team.");
-    type("Required skills", "Customer support");
+    type("Skills students need", "Customer support");
     fireEvent.click(screen.getByRole("button", { name: "Post opening" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
     expect(onSubmit.mock.calls[0][0].requiredSkills).toEqual(["Customer support"]);
@@ -126,7 +133,7 @@ describe("PostingForm validation", () => {
 describe("skills tag input", () => {
   it("adds on Enter and on comma, removes with the pill button", () => {
     renderForm();
-    const tags = screen.getByLabelText("Required skills");
+    const tags = screen.getByLabelText("Skills students need");
     fireEvent.change(tags, { target: { value: "Power BI" } });
     fireEvent.keyDown(tags, { key: "Enter" });
     fireEvent.change(tags, { target: { value: "Excel," } });
@@ -139,7 +146,7 @@ describe("skills tag input", () => {
 
   it("removes the last skill with Backspace on an empty box", () => {
     renderForm();
-    const tags = screen.getByLabelText("Required skills");
+    const tags = screen.getByLabelText("Skills students need");
     fireEvent.change(tags, { target: { value: "Power BI, Excel," } });
     fireEvent.keyDown(tags, { key: "Backspace" });
     expect(screen.queryByRole("button", { name: "Remove Excel" })).not.toBeInTheDocument();
@@ -148,7 +155,7 @@ describe("skills tag input", () => {
 
   it("ignores duplicates regardless of case and does not submit on Enter", () => {
     renderForm();
-    const tags = screen.getByLabelText("Required skills");
+    const tags = screen.getByLabelText("Skills students need");
     fireEvent.change(tags, { target: { value: "Excel," } });
     fireEvent.change(tags, { target: { value: "excel" } });
     fireEvent.keyDown(tags, { key: "Enter" });
@@ -158,7 +165,7 @@ describe("skills tag input", () => {
 
   it("caps at 12 skills and tells the person", () => {
     renderForm();
-    const tags = screen.getByLabelText("Required skills");
+    const tags = screen.getByLabelText("Skills students need");
     const names = Array.from({ length: 12 }, (_, i) => `Skill ${String.fromCharCode(65 + i)}`);
     fireEvent.change(tags, { target: { value: names.join(",") + "," } });
     expect(screen.getAllByRole("button", { name: /^Remove/ })).toHaveLength(12);
@@ -174,3 +181,90 @@ describe("skills tag input", () => {
     expect(addSkills([], "  Power   BI ").skills).toEqual(["Power BI"]);
   });
 });
+
+describe("PostingForm phase 2 fields", () => {
+  it("includes deadline, openings and compensation in the request payload", async () => {
+    renderForm();
+    fillValid();
+    fireEvent.change(screen.getByLabelText("Application deadline"), {
+      target: { value: "2026-12-31" },
+    });
+    fireEvent.change(screen.getByLabelText("Number of openings"), {
+      target: { value: "4" },
+    });
+    fireEvent.change(screen.getByLabelText("Lowest pay"), { target: { value: "15000" } });
+    fireEvent.change(screen.getByLabelText("Highest pay"), { target: { value: "25000" } });
+    fireEvent.click(screen.getByLabelText("Show pay to students"));
+    fireEvent.click(screen.getByRole("button", { name: "Post opening" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    const req = onSubmit.mock.calls[0][0];
+    expect(req.applicationDeadline).toBe("2026-12-31");
+    expect(req.openings).toBe(4);
+    expect(req.compensation).toEqual({
+      min: 15000,
+      max: 25000,
+      visibleToStudents: true,
+    });
+  });
+
+  it("flags a deadline in the past", () => {
+    renderForm();
+    fillValid();
+    fireEvent.change(screen.getByLabelText("Application deadline"), {
+      target: { value: "1999-01-01" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Post opening" }));
+    expect(screen.getByText(/Pick a date today or later/)).toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("flags a min greater than max", () => {
+    renderForm();
+    fillValid();
+    fireEvent.change(screen.getByLabelText("Lowest pay"), { target: { value: "30000" } });
+    fireEvent.change(screen.getByLabelText("Highest pay"), { target: { value: "15000" } });
+    fireEvent.click(screen.getByRole("button", { name: "Post opening" }));
+    expect(screen.getByText(/Lowest pay must not be more than highest pay/)).toBeInTheDocument();
+  });
+
+  it("flags 0 openings", () => {
+    renderForm();
+    fillValid();
+    fireEvent.change(screen.getByLabelText("Number of openings"), {
+      target: { value: "0" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Post opening" }));
+    expect(screen.getByText(/whole number from 1 to 500/)).toBeInTheDocument();
+  });
+
+  it("shows a Reload button and a custom message on a 409 conflict", async () => {
+    onSubmit.mockRejectedValue(new ApiError("job_posting_conflict", "x", 409));
+    renderForm();
+    fillValid();
+    fireEvent.click(screen.getByRole("button", { name: "Post opening" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/Reload to see the latest/);
+    expect(within2(alert).getByRole("button", { name: "Reload" })).toBeInTheDocument();
+  });
+
+  it("preview hides the pay range when the switch is off", () => {
+    renderForm();
+    fillValid();
+    fireEvent.change(screen.getByLabelText("Lowest pay"), { target: { value: "15000" } });
+    fireEvent.change(screen.getByLabelText("Highest pay"), { target: { value: "25000" } });
+    // Switch off (default).
+    const aside = screen.getByLabelText("How students will see it");
+    expect(aside.textContent).not.toMatch(/BDT/);
+    // Switch on.
+    fireEvent.click(screen.getByLabelText("Show pay to students"));
+    expect(aside.textContent).toMatch(/BDT 15,000/);
+  });
+});
+
+// Tiny helper so the conflict test can use `within` on the alert node without
+// importing the full API surface at the top of the file.
+function within2(element: HTMLElement) {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { within } = require("@testing-library/react");
+  return within(element);
+}

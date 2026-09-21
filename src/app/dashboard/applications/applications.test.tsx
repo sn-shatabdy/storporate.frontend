@@ -28,11 +28,11 @@ beforeEach(() => {
 
 afterEach(() => cleanup());
 
-const STATUS_COLORS: Record<ApplicationStatus, { label: string; bg: string; fg: string }> = {
-  Submitted: { label: "Submitted", bg: "#f3efdd", fg: "#6e6488" },
-  Viewed: { label: "Viewed", bg: "#e7f0ed", fg: "#345a73" },
-  Shortlisted: { label: "Shortlisted", bg: "#e6f4ea", fg: "#1e7b34" },
-  NotSelected: { label: "Not selected", bg: "#fbeee7", fg: "#a4460f" },
+const STATUS_TOKEN_CLASS: Record<ApplicationStatus, { label: string; bg: string; fg: string }> = {
+  Submitted: { label: "Submitted", bg: "bg-secondary", fg: "text-muted-foreground" },
+  Viewed: { label: "Viewed", bg: "bg-info-soft", fg: "text-info" },
+  Shortlisted: { label: "Shortlisted", bg: "bg-success-soft", fg: "text-success" },
+  NotSelected: { label: "Not selected", bg: "bg-warning-soft", fg: "text-warning" },
 };
 
 describe("my applications", () => {
@@ -72,7 +72,7 @@ describe("my applications", () => {
     expect(screen.getByText("2 applications")).toBeInTheDocument();
   });
 
-  it.each(Object.keys(STATUS_COLORS) as ApplicationStatus[])(
+  it.each(Object.keys(STATUS_TOKEN_CLASS) as ApplicationStatus[])(
     "colors the %s status pill",
     async (status) => {
       vi.mocked(listMyApplications).mockResolvedValue({
@@ -80,11 +80,9 @@ describe("my applications", () => {
       });
       render(<MyApplicationsPage />);
       const card = await screen.findByRole("article");
-      const c = STATUS_COLORS[status];
-      expect(within(card).getByText(c.label)).toHaveStyle({
-        backgroundColor: c.bg,
-        color: c.fg,
-      });
+      const c = STATUS_TOKEN_CLASS[status];
+      expect(within(card).getByText(c.label)).toHaveClass(c.bg);
+      expect(within(card).getByText(c.label)).toHaveClass(c.fg);
     },
   );
 

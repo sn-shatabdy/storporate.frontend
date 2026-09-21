@@ -22,7 +22,7 @@ export default function NewPostingPage() {
 
   return (
     <div className="px-4 py-10 sm:px-6 lg:px-10">
-      <div className="mx-auto flex w-full max-w-[820px] flex-col gap-6">
+      <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-6">
         <div>
           <Link
             href="/employer/jobs"
