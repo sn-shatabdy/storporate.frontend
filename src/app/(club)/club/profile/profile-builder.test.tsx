@@ -55,11 +55,23 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 function type(label: string, value: string) {
-  fireEvent.change(screen.getByLabelText(label), { target: { value } });
+  // Phase 2 adds a right-rail preview that mirrors the form values, so
+  // labels like "About" can now match both the form's textarea and the
+  // preview's `<section aria-labelledby>` landmark. Scope to the form
+  // element so we always reach the editable input.
+  const form = screen.getByRole("form", { name: /Your club profile/i });
+  fireEvent.change(
+    within(form).getByLabelText(label),
+    { target: { value } },
+  );
 }
 
 async function renderEmpty() {
   render(<ClubProfilePage />);
+  // Phase 2 adds a first-visit inviting empty card for a never-saved
+  // profile. Step past it so we land in the empty builder form, the
+  // shape every pre-existing test was written against.
+  fireEvent.click(await screen.findByRole("button", { name: "Start writing" }));
   await screen.findByLabelText("Club name");
 }
 
@@ -68,7 +80,8 @@ function fillRequired() {
   type("About", "We run weekly data sessions for students.");
   type("University", "BUET");
   type("Member count", "120");
-  const fields = screen.getByLabelText("Fields of study");
+  const form = screen.getByRole("form", { name: /Your club profile/i });
+  const fields = within(form).getByLabelText("Fields of study");
   fireEvent.change(fields, { target: { value: "Statistics" } });
   fireEvent.keyDown(fields, { key: "Enter" });
   fireEvent.click(screen.getByRole("button", { name: "Year 1" }));
@@ -89,18 +102,37 @@ describe("club profile builder", () => {
     expect(getMyClubProfile).toHaveBeenCalledWith(ACCESS_TOKEN, expect.anything());
   });
 
+  it("shows the first-visit inviting empty state for a never-saved club", async () => {
+    // A profile load that returns null AND no unsaved input means the
+    // user has never saved before — surface the inviting empty card
+    // instead of dropping them straight into a blank editor.
+    vi.mocked(getMyClubProfile).mockResolvedValue(null);
+    render(<ClubProfilePage />);
+    expect(await screen.findByText("Build your club profile")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Tell companies who you are, who you reach/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start writing" })).toBeInTheDocument();
+    // The builder surfaces should not appear in this branch.
+    expect(screen.queryByLabelText("Club name")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+  });
+
   it("loads an existing profile into the form", async () => {
     vi.mocked(getMyClubProfile).mockResolvedValue(makeClubProfile());
     render(<ClubProfilePage />);
-    expect(await screen.findByDisplayValue("Data Science Club")).toBeInTheDocument();
-    expect(screen.getByLabelText("Tagline")).toHaveValue("Learn by building");
-    expect(screen.getByLabelText("Member count")).toHaveValue(120);
-    expect(screen.getByLabelText("Founded year")).toHaveValue(2018);
-    expect(screen.getByText("Computer Science")).toBeInTheDocument();
+    const form = await screen.findByRole("form", { name: /Your club profile/i });
+    expect(within(form).getByDisplayValue("Data Science Club")).toBeInTheDocument();
+    expect(within(form).getByLabelText("Tagline")).toHaveValue("Learn by building");
+    expect(within(form).getByLabelText("Member count")).toHaveValue(120);
+    expect(within(form).getByLabelText("Founded year")).toHaveValue(2018);
+    // "Computer Science" appears both as a TagInput pill and as a
+    // preview pill — only the TagInput renders inside the form.
+    expect(within(form).getByText("Computer Science")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Year 2" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Year 4" })).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByDisplayValue("Data Night")).toBeInTheDocument();
-    expect(screen.getByLabelText("How often")).toHaveValue("Monthly");
+    expect(within(form).getByDisplayValue("Data Night")).toBeInTheDocument();
+    expect(within(form).getByLabelText("How often")).toHaveValue("Monthly");
     expect(screen.getByText("Everything needed to publish is filled in.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Publish" })).toBeEnabled();
   });
@@ -110,7 +142,8 @@ describe("club profile builder", () => {
     render(<ClubProfilePage />);
     expect(await screen.findByText("Could not load your club profile")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Try again/ }));
-    expect(await screen.findByLabelText("Club name")).toBeInTheDocument();
+    // After retry, a null profile lands on the first-visit inviting card.
+    expect(await screen.findByText("Build your club profile")).toBeInTheDocument();
   });
 
   it("validates on save, shows inline errors and focuses the first invalid field", async () => {
@@ -304,9 +337,88 @@ describe("club profile builder", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Preview" }));
     expect(screen.queryByLabelText("Club name")).not.toBeInTheDocument();
     expect(screen.getByText("This is how companies see your profile.")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Robotics Society" })).toBeInTheDocument();
-    expect(screen.getByText("No events listed yet.")).toBeInTheDocument();
+    // The right-rail "How companies will see it" panel also renders the
+    // profile; assert only inside the form-column preview pane.
+    const formColumn = screen.getByRole("form", { name: /Your club profile/i });
+    expect(
+      within(formColumn).getByRole("heading", { name: "Robotics Society" }),
+    ).toBeInTheDocument();
+    expect(within(formColumn).getByText("No events listed yet.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("radio", { name: "Edit" }));
+    expect(within(formColumn).getByLabelText("Club name")).toHaveValue("Robotics Society");
+  });
+
+  it("always shows the right-rail live preview, updated from the form", async () => {
+    vi.mocked(getMyClubProfile).mockResolvedValue(makeClubProfile());
+    render(<ClubProfilePage />);
+    await screen.findByDisplayValue("Data Science Club");
+    expect(
+      screen.getByRole("region", { name: "How companies will see it" }),
+    ).toBeInTheDocument();
+    expect(
+      within(
+        screen.getByRole("region", { name: "How companies will see it" }),
+      ).getByRole("heading", { name: "Data Science Club" }),
+    ).toBeInTheDocument();
+    type("Club name", "Robotics Society");
+    expect(
+      within(
+        screen.getByRole("region", { name: "How companies will see it" }),
+      ).getByRole("heading", { name: "Robotics Society" }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders the 409 conflict card on the first-save race and lets Keep editing dismiss it", async () => {
+    vi.mocked(getMyClubProfile).mockResolvedValue(null);
+    vi.mocked(saveClubProfile).mockRejectedValue(
+      new ApiError("club_profile_conflict", "Profile changed elsewhere.", 409),
+    );
+    render(<ClubProfilePage />);
+    // Fill required fields through the form directly — the first-visit
+    // empty card is the inviting one, not the conflict card.
+    fireEvent.click(await screen.findByRole("button", { name: "Start writing" }));
+    // The builder renders after Start writing focuses the name field;
+    // type into the form now.
+    const name = await screen.findByLabelText("Club name");
+    fireEvent.change(name, { target: { value: "Robotics Society" } });
+    type("About", "We build robots and run hackathons.");
+    type("University", "BUET");
+    type("Member count", "120");
+    const fields = screen.getByLabelText("Fields of study");
+    fireEvent.change(fields, { target: { value: "Computer Science" } });
+    fireEvent.keyDown(fields, { key: "Enter" });
+    fireEvent.click(screen.getByRole("button", { name: "Year 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("This profile changed elsewhere");
+    expect(saveClubProfile).toHaveBeenCalledTimes(1);
+    // Keep editing dismisses the conflict card but keeps the dirty buffer.
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Club name")).toHaveValue("Robotics Society");
+  });
+
+  it("renders the 409 conflict card on the stale-update race and Reload latest refetches", async () => {
+    vi.mocked(getMyClubProfile)
+      .mockResolvedValueOnce(makeClubProfile({ name: "Data Science Club" }))
+      .mockResolvedValueOnce(makeClubProfile({ name: "Data Science Club v2" }));
+    vi.mocked(saveClubProfile).mockRejectedValue(
+      new ApiError("club_profile_conflict", "Profile changed elsewhere.", 409),
+    );
+    render(<ClubProfilePage />);
+    await screen.findByDisplayValue("Data Science Club");
+    // Force a real change so the Save button enables.
+    type("Tagline", "Learn by building twice");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "This profile changed elsewhere",
+    );
+    // Reload latest bumps the version and refetches the profile.
+    fireEvent.click(screen.getByRole("button", { name: "Reload latest" }));
+    await waitFor(() =>
+      expect(screen.getByDisplayValue("Data Science Club v2")).toBeInTheDocument(),
+    );
+    expect(getMyClubProfile).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

@@ -9,8 +9,20 @@ import { ApiError } from "./errors";
  * `ApiError` with `errorCode`:
  *   - `club_profile_not_found` (404)
  *   - `club_profile_incomplete` (400, publish, `message` names what is missing)
+ *   - `club_profile_conflict` (409, save) — the profile changed elsewhere
+ *     since this page loaded. Two triggers: the first-save race (two
+ *     concurrent first PUTs for the same club account) and the
+ *     stale-xmin update race (someone saved after we loaded). The page
+ *     uses this constant to render the dedicated conflict card.
  *   - other 400 validation errors carry a readable `message`
  */
+
+/**
+ * Error code the backend returns on the first-save race and on the
+ * stale-xmin update race. Surface this verbatim in the page so the
+ * 409 card stays wired even if the message text changes.
+ */
+export const CLUB_PROFILE_CONFLICT_CODE = "club_profile_conflict" as const;
 
 export const SUPPORT_NEEDS = [
   "Funding",

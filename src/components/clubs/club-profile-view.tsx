@@ -28,9 +28,12 @@ const SMALL_LABEL =
   "text-[11px] font-semibold uppercase tracking-wide text-muted-foreground";
 
 /**
- * One page a company can read in a minute: who the club is, how big it is,
- * who its audience is and what events it runs. Used by the company detail
- * page and by the builder preview.
+ * STOR-69 Phase 2 — one page a company can read in a minute: who the
+ * club is, how big it is, who its audience is and what events it runs.
+ * Used by the company detail page and by the builder's right-rail live
+ * preview. Hex-free: the working-blue pills use the shared `bg-accent
+ * text-primary` pair so swapping the palette theme swaps every preview
+ * tile at once.
  */
 export function ClubProfileView({
   profile,
@@ -116,13 +119,7 @@ export function ClubProfileView({
             <ul className="flex flex-wrap gap-1.5" aria-label="Fields of study">
               {fields.map((f) => (
                 <li key={f}>
-                  <span
-                    className="inline-flex items-center rounded-full px-2.5 py-[3px] text-[11.5px] font-semibold"
-                    style={{
-                      backgroundColor: "var(--accent)",
-                      color: "#345a73",
-                    }}
-                  >
+                  <span className="inline-flex items-center rounded-full bg-accent px-2.5 py-[3px] text-[11.5px] font-semibold text-primary">
                     {f}
                   </span>
                 </li>
@@ -189,10 +186,7 @@ function EventCard({ event }: { event: ClubEvent }) {
         <h3 className="break-words font-heading text-base font-semibold leading-snug text-foreground">
           {event.title}
         </h3>
-        <span
-          className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold"
-          style={{ backgroundColor: "#e8eef2", color: "#345a73" }}
-        >
+        <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-accent px-2.5 py-1 text-[11px] font-semibold text-primary">
           <CalendarDays className="size-3" aria-hidden />
           {FREQUENCY_LABELS[event.frequency] ?? event.frequency}
         </span>
