@@ -3,12 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
   composeDetailLine,
   counterLine,
+  formatFileSize,
   MAX_QUERY_CHARS,
   messageForQueryValidation,
   messageForTalentSearchError,
   MIN_QUERY_CHARS,
   resultsCountLine,
   srResultsAnnouncement,
+  typeLabelFor,
   validateQuery,
 } from "./helpers";
 
@@ -218,5 +220,85 @@ describe("messageForTalentSearchError", () => {
     expect(messageForTalentSearchError("permission_denied")).toBeNull();
     expect(messageForTalentSearchError("llm_provider_error")).toBeNull();
     expect(messageForTalentSearchError("nope")).toBeNull();
+  });
+});
+
+describe("typeLabelFor — short MIME labels", () => {
+  it("returns 'PDF' for application/pdf", () => {
+    expect(typeLabelFor("application/pdf")).toBe("PDF");
+  });
+
+  it("returns 'Image' for every supported image MIME", () => {
+    expect(typeLabelFor("image/png")).toBe("Image");
+    expect(typeLabelFor("image/jpeg")).toBe("Image");
+    expect(typeLabelFor("image/gif")).toBe("Image");
+    expect(typeLabelFor("image/webp")).toBe("Image");
+  });
+
+  it("returns 'Video' for mp4/webm", () => {
+    expect(typeLabelFor("video/mp4")).toBe("Video");
+    expect(typeLabelFor("video/webm")).toBe("Video");
+  });
+
+  it("returns 'Word', 'PowerPoint', 'Excel' for the office OOXML types", () => {
+    expect(typeLabelFor("application/msword")).toBe("Word");
+    expect(
+      typeLabelFor(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ),
+    ).toBe("Word");
+    expect(typeLabelFor("application/vnd.ms-powerpoint")).toBe("PowerPoint");
+    expect(
+      typeLabelFor(
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      ),
+    ).toBe("PowerPoint");
+    expect(typeLabelFor("application/vnd.ms-excel")).toBe("Excel");
+    expect(
+      typeLabelFor(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      ),
+    ).toBe("Excel");
+  });
+
+  it("returns 'Text', 'CSV', 'ZIP' for the plain-text / archive types", () => {
+    expect(typeLabelFor("text/plain")).toBe("Text");
+    expect(typeLabelFor("text/csv")).toBe("CSV");
+    expect(typeLabelFor("application/zip")).toBe("ZIP");
+    expect(typeLabelFor("application/x-zip-compressed")).toBe("ZIP");
+  });
+
+  it("falls back to 'File' for unknown / null content types", () => {
+    expect(typeLabelFor("application/octet-stream")).toBe("File");
+    expect(typeLabelFor("")).toBe("File");
+    expect(typeLabelFor(null)).toBe("File");
+  });
+});
+
+describe("formatFileSize — 1024-unit buckets", () => {
+  it("uses bare bytes below 1 KB", () => {
+    expect(formatFileSize(0)).toBe("0 B");
+    expect(formatFileSize(12)).toBe("12 B");
+    expect(formatFileSize(1023)).toBe("1023 B");
+  });
+
+  it("formats KB with one decimal between 1 KB and 1 MB", () => {
+    // 340 * 1024 = 348160 → "340.0 KB"
+    expect(formatFileSize(348160)).toBe("340.0 KB");
+    // 999 KB — the boundary below 1 MB → "999.0 KB"
+    expect(formatFileSize(999 * 1024)).toBe("999.0 KB");
+  });
+
+  it("formats MB with one decimal between 1 MB and 1 GB", () => {
+    // 2.4 * 1024 * 1024 bytes = 2.4 MB exact
+    const twoPointFourMB = Math.round(2.4 * 1024 * 1024);
+    expect(formatFileSize(twoPointFourMB)).toBe("2.4 MB");
+    expect(formatFileSize(1024 * 1024)).toBe("1.0 MB");
+  });
+
+  it("returns null when the size is null / negative / NaN", () => {
+    expect(formatFileSize(null)).toBeNull();
+    expect(formatFileSize(-1)).toBeNull();
+    expect(formatFileSize(Number.NaN)).toBeNull();
   });
 });
