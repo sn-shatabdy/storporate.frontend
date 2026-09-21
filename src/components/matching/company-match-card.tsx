@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, HandCoins } from "lucide-react";
 
 import type { CompanyMatch } from "@/lib/api/matching";
 import { initialsOf } from "@/components/clubs/club-helpers";
@@ -47,9 +47,18 @@ export function CompanyMatchCard({ match }: { match: CompanyMatch }) {
       </div>
 
       <div
-        className="flex border-t pt-4"
+        className="flex flex-col gap-2 border-t pt-4 sm:flex-row"
         style={{ borderColor: "var(--border)" }}
       >
+        <Button asChild size="lg" className="h-10 w-full sm:h-9 sm:w-auto">
+          <Link
+            href={`/club/sponsors/${encodeURIComponent(company.id)}/request`}
+            aria-label={`Request sponsorship from ${company.companyName}`}
+          >
+            <HandCoins className="size-4" aria-hidden />
+            Request sponsorship
+          </Link>
+        </Button>
         <Button asChild variant="outline" size="lg" className="h-10 w-full sm:h-9 sm:w-auto">
           <Link
             href={`/club/sponsors/${encodeURIComponent(company.id)}`}

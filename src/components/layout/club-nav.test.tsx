@@ -42,7 +42,7 @@ describe("ClubNav sponsors link", () => {
     expect(link).toHaveAttribute("href", "/club/sponsors");
     expect(link).not.toHaveAttribute("aria-current");
     const names = screen.getAllByRole("link").map((l) => l.textContent);
-    expect(names).toEqual(["My profile", "Sponsors", "Matches"]);
+    expect(names).toEqual(["My profile", "Sponsors", "Matches", "Requests"]);
     rerender(<ClubNav isProfileActive={false} isSponsorsActive />);
     expect(screen.getByRole("link", { name: "Sponsors" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "My profile" })).not.toHaveAttribute("aria-current");
@@ -72,5 +72,29 @@ describe("ClubNav matches link", () => {
     rerender(<ClubNav isProfileActive={false} isMatchesActive />);
     expect(screen.getByRole("link", { name: "Matches" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Sponsors" })).not.toHaveAttribute("aria-current");
+  });
+});
+
+describe("STOR-72 requests links", () => {
+  it("ClubNav renders a Requests link to /club/requests and marks it active", () => {
+    const { rerender } = render(<ClubNav isProfileActive={false} />);
+    const link = screen.getByRole("link", { name: "Requests" });
+    expect(link).toHaveAttribute("href", "/club/requests");
+    expect(link).not.toHaveAttribute("aria-current");
+    rerender(<ClubNav isProfileActive={false} isRequestsActive />);
+    expect(screen.getByRole("link", { name: "Requests" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Matches" })).not.toHaveAttribute("aria-current");
+  });
+
+  it("EmployerNav renders a Requests link to /employer/requests and marks it active", () => {
+    const { rerender } = render(<EmployerNav isSearchActive={false} />);
+    const link = screen.getByRole("link", { name: "Requests" });
+    expect(link).toHaveAttribute("href", "/employer/requests");
+    expect(link).not.toHaveAttribute("aria-current");
+    const names = screen.getAllByRole("link").map((l) => l.textContent);
+    expect(names[names.length - 1]).toBe("Requests");
+    rerender(<EmployerNav isSearchActive={false} isRequestsActive />);
+    expect(screen.getByRole("link", { name: "Requests" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Sponsorship" })).not.toHaveAttribute("aria-current");
   });
 });
