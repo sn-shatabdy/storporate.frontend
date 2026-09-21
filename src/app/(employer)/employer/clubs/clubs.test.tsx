@@ -36,7 +36,10 @@ beforeEach(() => {
     data: { accessToken: ACCESS_TOKEN, actorType: "Organization" },
     status: "authenticated",
   } as never);
-  vi.mocked(listClubs).mockResolvedValue({ items: [makeClubSummary()] });
+  vi.mocked(listClubs).mockResolvedValue({
+    items: [makeClubSummary()],
+    total: 1,
+  });
 });
 
 afterEach(() => cleanup());
@@ -48,35 +51,105 @@ describe("employer clubs list", () => {
     expect(screen.getByText("Loading clubs.")).toBeInTheDocument();
   });
 
-  it("renders a card with the summary details and a link to the profile", async () => {
+  it("renders a card with the enriched summary and a link to the profile", async () => {
     vi.mocked(listClubs).mockResolvedValue({
       items: [
         makeClubSummary({
-          fieldsOfStudy: ["A1", "B2", "C3", "D4", "E5"],
-          memberCount: 1,
-          eventCount: 1,
+          name: "Robotics Society",
+          tagline: "Building robots, building futures",
+          university: "University of Dhaka",
+          memberCount: 84,
+          foundedYear: 2016,
+          audienceYears: [2, 3, 4],
+          eventAttendanceSummary: { min: 40, max: 180 },
+          supportNeeds: ["Venue", "Prizes", "Volunteers"],
         }),
       ],
+      total: 1,
     });
     render(<ClubsPage />);
     const card = await screen.findByRole("article");
-    expect(card).toHaveTextContent("Data Science Club");
-    expect(card).toHaveTextContent("Learn by building");
-    expect(card).toHaveTextContent("BUET · 1 member");
-    expect(card).toHaveTextContent("A1");
-    expect(card).toHaveTextContent("C3");
-    expect(card).not.toHaveTextContent("D4");
-    expect(card).toHaveTextContent("+2 more");
-    expect(card).toHaveTextContent("1 event");
-    expect(screen.getByRole("link")).toHaveAttribute("href", "/employer/clubs/club-1");
-    expect(listClubs).toHaveBeenCalledWith(ACCESS_TOKEN, {}, expect.anything());
+    expect(card).toHaveTextContent("Robotics Society");
+    expect(card).toHaveTextContent("Building robots, building futures");
+    expect(card).toHaveTextContent("University of Dhaka");
+    expect(card).toHaveTextContent("84 members");
+    expect(card).toHaveTextContent("Founded 2016");
+    expect(card).toHaveTextContent("Years 2-4");
+    expect(card).toHaveTextContent("Attendance 40-180");
+    expect(card).toHaveTextContent("Needs: Venue, Prizes, Volunteers");
+    expect(screen.getByRole("link", { name: /View profile of Robotics Society/ })).toHaveAttribute(
+      "href",
+      "/employer/clubs/club-1",
+    );
+    expect(listClubs).toHaveBeenCalledWith(
+      ACCESS_TOKEN,
+      { q: "", field: "", university: "" },
+      expect.anything(),
+    );
   });
 
-  it("pluralises members and events", async () => {
+  it("shows the singular members copy", async () => {
+    vi.mocked(listClubs).mockResolvedValue({
+      items: [makeClubSummary({ memberCount: 1 })],
+      total: 1,
+    });
     render(<ClubsPage />);
     const card = await screen.findByRole("article");
-    expect(card).toHaveTextContent("120 members");
-    expect(card).toHaveTextContent("3 events");
+    expect(card).toHaveTextContent("1 member");
+  });
+
+  it("omits founded year, audience years, attendance and support needs when they are absent", async () => {
+    vi.mocked(listClubs).mockResolvedValue({
+      items: [
+        makeClubSummary({
+          foundedYear: null,
+          audienceYears: [],
+          eventAttendanceSummary: { min: null, max: null },
+          supportNeeds: [],
+        }),
+      ],
+      total: 1,
+    });
+    render(<ClubsPage />);
+    const card = await screen.findByRole("article");
+    expect(card).not.toHaveTextContent("Founded");
+    expect(card).not.toHaveTextContent(/Years\s/);
+    expect(card).not.toHaveTextContent(/Attendance\s/);
+    expect(card).not.toHaveTextContent("Needs:");
+  });
+
+  it("renders attendance as a single value when min equals max", async () => {
+    vi.mocked(listClubs).mockResolvedValue({
+      items: [makeClubSummary({ eventAttendanceSummary: { min: 80, max: 80 } })],
+      total: 1,
+    });
+    render(<ClubsPage />);
+    const card = await screen.findByRole("article");
+    expect(card).toHaveTextContent("Attendance 80");
+    expect(card).not.toHaveTextContent("Attendance 80-80");
+  });
+
+  it("shows the 'showing N of total' affordance when the result was truncated", async () => {
+    vi.mocked(listClubs).mockResolvedValue({
+      items: Array.from({ length: 50 }, (_, i) =>
+        makeClubSummary({ id: `c${i}`, name: `Club ${i}` }),
+      ),
+      total: 63,
+    });
+    render(<ClubsPage />);
+    const count = await screen.findByTestId("clubs-count");
+    expect(count).toHaveTextContent("Showing 50 of 63 clubs.");
+  });
+
+  it("hides the 'of total' clause when nothing was truncated", async () => {
+    vi.mocked(listClubs).mockResolvedValue({
+      items: [makeClubSummary({ name: "Only Club" })],
+      total: 1,
+    });
+    render(<ClubsPage />);
+    const count = await screen.findByTestId("clubs-count");
+    expect(count).toHaveTextContent("Showing 1 club.");
+    expect(count).not.toHaveTextContent("of");
   });
 
   it("debounces the filters and passes them to the API", async () => {
@@ -96,7 +169,7 @@ describe("employer clubs list", () => {
   });
 
   it("shows the empty state and clears filters", async () => {
-    vi.mocked(listClubs).mockResolvedValue({ items: [] });
+    vi.mocked(listClubs).mockResolvedValue({ items: [], total: 0 });
     render(<ClubsPage />);
     expect(await screen.findByText("No clubs match.")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("University"), { target: { value: "BUET" } });
@@ -115,13 +188,50 @@ describe("employer clubs list", () => {
 });
 
 describe("employer club detail", () => {
-  it("shows the club profile with a back link", async () => {
+  it("shows the club profile with a back link and the Key facts panel", async () => {
     vi.mocked(getClub).mockResolvedValue(makeClubProfile({ status: "Published" }));
     render(<ClubDetailPage />);
     expect(await screen.findByRole("heading", { level: 1, name: "Data Science Club" })).toBeInTheDocument();
     expect(getClub).toHaveBeenCalledWith(ACCESS_TOKEN, "club-1", expect.anything());
     expect(screen.getByRole("link", { name: /Clubs/ })).toHaveAttribute("href", "/employer/clubs");
     expect(screen.getByText("Data Night")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Key facts" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send a sponsorship request" })).toBeInTheDocument();
+  });
+
+  it("renders founded and attendance range inside the right-rail Key facts panel", async () => {
+    vi.mocked(getClub).mockResolvedValue(
+      makeClubProfile({
+        status: "Published",
+        events: [
+          { id: "a", title: "Hackathon", description: null, typicalAttendance: 40, frequency: "Yearly", supportNeeds: [] },
+          { id: "b", title: "Demo day", description: null, typicalAttendance: 180, frequency: "Termly", supportNeeds: [] },
+        ],
+      }),
+    );
+    render(<ClubDetailPage />);
+    const panel = (await screen.findByRole("heading", { name: "Key facts" })).closest("section") as HTMLElement;
+    // jSDOM concatenates dt/dd text without whitespace, so query each row's
+    // value cell directly rather than reading textContent.
+    const rows = panel.querySelectorAll("dl > div");
+    expect(rows).toHaveLength(3);
+    expect(rows[1].querySelector("dd")).toHaveTextContent("2018");
+    expect(rows[2].querySelector("dd")).toHaveTextContent("40-180");
+  });
+
+  it("shows 'Not listed yet' for Founded and Attendance range when absent", async () => {
+    vi.mocked(getClub).mockResolvedValue(
+      makeClubProfile({
+        status: "Published",
+        foundedYear: null,
+        events: [],
+      }),
+    );
+    render(<ClubDetailPage />);
+    const panel = (await screen.findByRole("heading", { name: "Key facts" })).closest("section") as HTMLElement;
+    const rows = panel.querySelectorAll("dl > div");
+    expect(rows[1].querySelector("dd")).toHaveTextContent("Not listed yet.");
+    expect(rows[2].querySelector("dd")).toHaveTextContent("Not listed yet.");
   });
 
   it("shows the not available state on 404", async () => {

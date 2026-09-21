@@ -48,7 +48,7 @@ beforeEach(() => {
     status: "authenticated",
   } as never);
   vi.mocked(getMyClubProfile).mockResolvedValue(makeClubProfile());
-  vi.mocked(listClubs).mockResolvedValue({ items: [makeClubSummary()] });
+  vi.mocked(listClubs).mockResolvedValue({ items: [makeClubSummary()], total: 1 });
   vi.mocked(getClub).mockResolvedValue(makeClubProfile({ status: "Published" }));
 });
 
@@ -119,7 +119,7 @@ describe("club copy guard", () => {
     await screen.findByRole("article");
     assertCleanCopy(list.container.textContent ?? "");
     cleanup();
-    vi.mocked(listClubs).mockResolvedValue({ items: [] });
+    vi.mocked(listClubs).mockResolvedValue({ items: [], total: 0 });
     const empty = render(<ClubsPage />);
     await screen.findByText("No clubs match.");
     assertCleanCopy(empty.container.textContent ?? "");

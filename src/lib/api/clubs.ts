@@ -102,6 +102,15 @@ export interface ClubProfileRequest {
   events: ClubEventRequest[];
 }
 
+/**
+ * Aggregated event attendance across a club. Both null when the club
+ * has no events that carry a typical-attendance value.
+ */
+export interface ClubEventAttendanceSummary {
+  min: number | null;
+  max: number | null;
+}
+
 export interface ClubSummary {
   id: string;
   name: string;
@@ -110,6 +119,15 @@ export interface ClubSummary {
   memberCount: number;
   fieldsOfStudy: string[];
   eventCount: number;
+  /** Years the club has existed (best-effort, may be null). */
+  foundedYear: number | null;
+  /** Study years the club's audience belongs to, sorted ascending. */
+  audienceYears: number[];
+  /** Aggregated event attendance across the club. */
+  eventAttendanceSummary: ClubEventAttendanceSummary;
+  /** Union of support needs across all the club's events, deduped and
+   *  sorted ascending. */
+  supportNeeds: string[];
 }
 
 export interface ClubFilters {
@@ -160,12 +178,15 @@ export async function unpublishClubProfile(
   return apiCall("POST", `${PROFILE}/unpublish`, { bearerToken, signal });
 }
 
-/** Company: published clubs. Empty filters are left out of the URL. */
+/** Company: published clubs. Empty filters are left out of the URL. The
+ *  returned `total` is the count of all matching rows before the server-side
+ *  `Take(MaxResults)` cap, so the caller can show a "showing N of total"
+ *  affordance only when `total > items.length`. */
 export async function listClubs(
   bearerToken: string,
   filters: ClubFilters = {},
   signal?: AbortSignal,
-): Promise<{ items: ClubSummary[] }> {
+): Promise<{ items: ClubSummary[]; total: number }> {
   const params = new URLSearchParams();
   const q = filters.q?.trim();
   const field = filters.field?.trim();
