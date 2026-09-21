@@ -1,5 +1,7 @@
 "use client";
 
+import type { ReactNode } from "react";
+
 import type { CandidateReview } from "@/lib/api/candidateReview";
 
 import { composeDetailLine, initialsFor } from "./helpers";
@@ -19,9 +21,11 @@ import { composeDetailLine, initialsFor } from "./helpers";
  */
 export interface CandidateHeaderProps {
   candidate: CandidateReview;
+  /** Optional action row shown under the details (STOR-68). */
+  actions?: ReactNode;
 }
 
-export function CandidateHeader({ candidate }: CandidateHeaderProps) {
+export function CandidateHeader({ candidate, actions }: CandidateHeaderProps) {
   const detailLine = composeDetailLine({
     university: candidate.university,
     fieldOfStudy: candidate.fieldOfStudy,
@@ -71,6 +75,15 @@ export function CandidateHeader({ candidate }: CandidateHeaderProps) {
           </span>
         </div>
       )}
+
+      {actions ? (
+        <div
+          className="border-t pt-3.5"
+          style={{ borderColor: "var(--border)" }}
+        >
+          {actions}
+        </div>
+      ) : null}
     </section>
   );
 }

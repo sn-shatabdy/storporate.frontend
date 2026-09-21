@@ -73,6 +73,8 @@ export function Header() {
   // STOR-67 — the student's own applications.
   const isApplicationsActive =
     pathname?.startsWith("/dashboard/applications") ?? false;
+  // STOR-68 — the student's invitations and conversations.
+  const isInboxActive = pathname?.startsWith("/dashboard/inbox") ?? false;
   // STOR-43 Phase 4 — single-link employer nav; `startsWith` so any
   // future employer sub-routes keep the active state.
   const isEmployerSearchActive =
@@ -80,6 +82,11 @@ export function Header() {
   // STOR-66 — the employer's own openings (list, new, edit).
   const isEmployerJobsActive =
     pathname?.startsWith("/employer/jobs") ?? false;
+  // STOR-68 — the employer's shortlist and conversations.
+  const isEmployerShortlistActive =
+    pathname?.startsWith("/employer/shortlist") ?? false;
+  const isEmployerMessagesActive =
+    pathname?.startsWith("/employer/messages") ?? false;
 
   async function handleLogout() {
     setMenuOpen(false);
@@ -137,15 +144,18 @@ export function Header() {
             isVisibilityActive={isVisibilityActive}
             isOpeningsActive={isOpeningsActive}
             isApplicationsActive={isApplicationsActive}
+            isInboxActive={isInboxActive}
           />
         </div>
       )}
       {isOrganization && (
         <div className="border-b border-border/60 px-2.5 md:hidden">
           <EmployerNav
-            className="flex items-center gap-1"
+            className="flex items-center gap-1 overflow-x-auto whitespace-nowrap py-1"
             isSearchActive={isEmployerSearchActive}
             isJobsActive={isEmployerJobsActive}
+            isShortlistActive={isEmployerShortlistActive}
+            isMessagesActive={isEmployerMessagesActive}
           />
         </div>
       )}
@@ -165,6 +175,7 @@ export function Header() {
               isVisibilityActive={isVisibilityActive}
               isOpeningsActive={isOpeningsActive}
               isApplicationsActive={isApplicationsActive}
+              isInboxActive={isInboxActive}
             />
           )}
           {isOrganization && (
@@ -172,6 +183,8 @@ export function Header() {
               className="flex items-center gap-1"
               isSearchActive={isEmployerSearchActive}
               isJobsActive={isEmployerJobsActive}
+              isShortlistActive={isEmployerShortlistActive}
+              isMessagesActive={isEmployerMessagesActive}
             />
           )}
         </div>
@@ -304,6 +317,7 @@ export function StudentNav({
   isVisibilityActive,
   isOpeningsActive = false,
   isApplicationsActive = false,
+  isInboxActive = false,
 }: {
   className?: string;
   isDashboardActive: boolean;
@@ -312,6 +326,7 @@ export function StudentNav({
   isVisibilityActive: boolean;
   isOpeningsActive?: boolean;
   isApplicationsActive?: boolean;
+  isInboxActive?: boolean;
 }) {
   return (
     <nav
@@ -343,6 +358,10 @@ export function StudentNav({
         active={isApplicationsActive}
       >
         Applications
+      </StudentNavLink>
+      {/* STOR-68 — invitations from organizations. */}
+      <StudentNavLink href="/dashboard/inbox" active={isInboxActive}>
+        Inbox
       </StudentNavLink>
     </nav>
   );
@@ -390,10 +409,14 @@ export function EmployerNav({
   className,
   isSearchActive,
   isJobsActive = false,
+  isShortlistActive = false,
+  isMessagesActive = false,
 }: {
   className?: string;
   isSearchActive: boolean;
   isJobsActive?: boolean;
+  isShortlistActive?: boolean;
+  isMessagesActive?: boolean;
 }) {
   return (
     <nav
@@ -405,6 +428,13 @@ export function EmployerNav({
       </StudentNavLink>
       <StudentNavLink href="/employer/jobs" active={isJobsActive}>
         Jobs
+      </StudentNavLink>
+      {/* STOR-68 — saved students and invitations sent. */}
+      <StudentNavLink href="/employer/shortlist" active={isShortlistActive}>
+        Shortlist
+      </StudentNavLink>
+      <StudentNavLink href="/employer/messages" active={isMessagesActive}>
+        Messages
       </StudentNavLink>
     </nav>
   );
