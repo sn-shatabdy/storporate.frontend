@@ -7,53 +7,27 @@ import {
   getApiBaseUrl,
 } from "./client";
 
-/**
- * STOR-44 Phase 4 — employer "drill-down" review surface client.
- *
- * Mirrors the backend's two new endpoints:
- *
- *   - `GET /api/discovery/candidates/{candidateId}`
- *     Returns the candidate's profile (display name, headline,
- *     university, field of study, study year) plus every visible
- *     portfolio item, each with the banded skills the AI attached
- *     and an `original` descriptor when the student shared the source.
- *     `404 candidate_not_found` is the only item-scoped error code;
- *     `401`/`403` are the standard auth gates.
- *
- *   - `GET /api/discovery/candidates/{candidateId}/items/{itemId}/original`
- *     Returns either:
- *         - a streamed binary blob (File items), or
- *         - a `200 { url }` JSON body (Link items).
- *     `404 original_not_shared` / `404 original_unavailable` are the
- *     item-scoped error codes. Auth gates are the same.
- *
- * Wire values are camelCase (the backend serializes with default
- * `JsonNamingPolicy.CamelCase`). All requests follow the shared
- * `apiCall` + `ApiError` convention — `ApiError.errorCode` carries the
- * backend's typed `GlobalExceptionHandler` codes. The binary helper
- * (`fetchCandidateOriginal`) reuses the same base-URL and auth-header
- * helpers that `apiCall` uses, and routes non-OK responses through the
- * same `ensureOkOrThrowApiError` plumbing so the `ApiError` shape is
- * identical across both surfaces.
- */
+/** Employer "drill-down" review surface client. Mirrors the backend's
+ *  two endpoints: `GET /api/discovery/candidates/{candidateId}` and
+ *  `GET /api/discovery/candidates/{candidateId}/items/{itemId}/original`.
+ *  Wire values are camelCase (the backend serializes with default
+ *  `JsonNamingPolicy.CamelCase`). */
 
-/** Strength band the backend attaches to each skill, as transmitted by
- *  `GET /api/discovery/candidates/{id}`. Mirrors the talent-search
- *  wire contract (see `src/lib/api/talentSearch.ts`). */
+/** Strength band the backend attaches to each skill, as transmitted
+ *  by `GET /api/discovery/candidates/{id}`. */
 export type CandidateSkillBand = "Strong" | "Developing";
 
-/** Source-kind descriptor for the original file/link a student chose to
- *  share. The endpoint also encodes `available: true` so a future
- *  "tombstoned" original can still report `original != null` but
- *  trigger the unavailable UX — out of scope for STOR-44 Phase 4. */
+/** Source-kind descriptor for the original file/link a student chose
+ *  to share. The `available: true` discriminator leaves room for a
+ *  future "tombstoned" original that still reports `original != null`
+ *  but triggers the unavailable UX. */
 export type CandidateOriginalKind = "File" | "Link";
 
 export interface CandidateSkill {
   name: string;
   band: CandidateSkillBand;
-  /** Null when the item is unshared (always null in that case per the
-   *  contract); may also be null on a shared item if the AI didn't
-   *  emit a reason. The card renders the pill only when this is null. */
+  /** Null on an unshared item (always) or when the AI emitted no
+   *  reason; the card renders the pill only. */
   reason: string | null;
 }
 
@@ -73,7 +47,7 @@ export interface CandidateItem {
   shared: boolean;
   skills: CandidateSkill[];
   /** `null` when the student didn't share the original (or the item is
-   *  a Link that has no live URL). */
+   *  a Link with no live URL). */
   original: CandidateOriginal | null;
 }
 
@@ -87,18 +61,13 @@ export interface CandidateReview {
   items: CandidateItem[];
 }
 
-/** Discriminated union returned by `fetchCandidateOriginal`. `kind`
- *  mirrors the underlying endpoint shape: a streamed binary blob for
- *  a File item, or a 200 JSON `{ url }` for a Link item.
- *
- *  - `blob`: the body bytes, the wire `Content-Type` header, the
- *    parsed file name (or null), and an `inline` flag derived from
- *    the response's `Content-Disposition` header (true when the
- *    header starts with `inline`, false when `attachment` or
- *    anything else — including missing). The viewer uses `inline` to
- *    decide whether to render inline preview vs trigger a download.
- *  - `link`: the URL the backend proxies back for a Link item. The
- *    page opens this in a new tab after a synchronous popup stub. */
+/** Discriminated union returned by `fetchCandidateOriginal`.
+ *  - `blob`: body bytes, wire `Content-Type`, parsed file name (or null),
+ *    and an `inline` flag derived from the response's
+ *    `Content-Disposition` header (true when the header starts with
+ *    `inline`, false otherwise). The viewer uses `inline` to decide
+ *    inline preview vs download.
+ *  - `link`: the URL the backend proxies back for a Link item. */
 export type CandidateOriginalResponse =
   | {
       kind: "blob";
@@ -110,10 +79,8 @@ export type CandidateOriginalResponse =
   | { kind: "link"; url: string };
 
 /** `GET /api/discovery/candidates/{candidateId}` — full candidate
- *  review payload. Throws `ApiError` on `candidate_not_found`
- *  (404), `permission_denied` (403, e.g. an Organization hitting a
- *  candidate who's turned off visibility — the backend may also
- *  surface this as 404 today), and the standard 401. */
+ *  review payload. Throws `ApiError` on `candidate_not_found` (404),
+ *  `permission_denied` (403), and the standard 401. */
 export async function getCandidate(
   bearerToken: string,
   candidateId: string,
@@ -126,65 +93,72 @@ export async function getCandidate(
   );
 }
 
-/**
- * Parse the file name out of a `Content-Disposition` header value.
- *
- * Supports `filename*=UTF-8''<percent-encoded>` (the wire format the
- * backend uses; the spec calls for it because it's the only format
- * that preserves non-ASCII characters through reverse proxies). Falls
- * back to `filename="..."` when present, and to `null` when neither
- * is set. Returns `null` for an empty/undefined header so the caller
- * can render an "Original file" fallback.
- */
+/** Parse the file name out of a `Content-Disposition` header value.
+ *  Supports `filename*=UTF-8''<percent-encoded>` (the wire format the
+ *  backend uses; RFC 5987 is the only format that preserves
+ *  non-ASCII characters through reverse proxies). Falls back to
+ *  `filename="..."` when present, and to `null` otherwise. */
 export function parseContentDispositionFileName(
   header: string | null,
 ): string | null {
   if (!header) return null;
   // RFC 5987: `filename*=UTF-8''<percent-encoded>`
   const starMatch = header.match(/filename\*\s*=\s*[^']*''([^;]+)/i);
+  let raw: string | null = null;
   if (starMatch && starMatch[1]) {
     try {
-      return decodeURIComponent(starMatch[1].trim());
+      raw = decodeURIComponent(starMatch[1]);
     } catch {
-      // Fall through to the plain filename match below on decode error.
+      raw = null;
     }
   }
-  // Plain `filename="..."` or `filename=...` fallback.
-  const plainMatch = header.match(/filename\s*=\s*("?)([^";]+)\1/i);
-  if (plainMatch && plainMatch[2]) {
-    return plainMatch[2].trim();
+  if (raw === null) {
+    // Plain `filename="..."` or `filename=...` fallback.
+    const plainMatch = header.match(/filename\s*=\s*("?)([^";]+)\1/i);
+    if (plainMatch && plainMatch[2]) {
+      raw = plainMatch[2];
+    }
   }
-  return null;
+  if (raw === null) return null;
+  return capFileName(
+    raw.replace(/\r/g, " ").replace(/\n/g, " ").trim(),
+    MAX_FILE_NAME,
+  );
 }
 
-/**
- * `true` when the response's `Content-Disposition` header starts
- * with `inline` (e.g. `inline; filename*=UTF-8''...`). `false` for
- * any other header value — including `attachment`, missing, or
- * a different disposition type — so the caller always gets a
- * definitive boolean.
- */
+/** Maximum length of a parsed file name returned by
+ *  `parseContentDispositionFileName`. */
+const MAX_FILE_NAME = 200;
+
+/** Trim a file name to `max` characters, preserving the extension
+ *  when one is present. Names shorter than the cap are returned as-is. */
+function capFileName(name: string, max: number): string {
+  if (name.length <= max) return name;
+  const dotIndex = name.lastIndexOf(".");
+  if (dotIndex <= 0 || dotIndex >= name.length - 1) {
+    return name.slice(0, max);
+  }
+  const extension = name.slice(dotIndex);
+  // Always leave room for the extension + the dot.
+  const keep = max - extension.length;
+  if (keep <= 0) return name.slice(0, max);
+  return name.slice(0, keep) + extension;
+}
+
+/** `true` when the response's `Content-Disposition` header starts with
+ *  `inline` (e.g. `inline; filename*=UTF-8''...`); `false` for any
+ *  other value — including `attachment`, missing, or a different
+ *  disposition type. */
 export function isInlineContentDisposition(header: string | null): boolean {
   if (!header) return false;
   return header.trim().toLowerCase().startsWith("inline");
 }
 
-/**
- * `GET /api/discovery/candidates/{candidateId}/items/{itemId}/original`
- *
- * Bypasses `apiCall` because the backend can return a streamed binary
- * blob rather than JSON. The auth header and base URL still come from
- * the shared helpers in `./client`, and any non-2xx JSON error body
- * (`{ errorCode, message }`) is parsed via `ensureOkOrThrowApiError`
- * so the caller sees the same `ApiError` shape as every other STOR-43
- * / STOR-44 endpoint.
- *
- * Detection: peek the `Content-Type` header. `application/json`
- * (with a `url` field) → `kind: "link"`. Anything else → `kind:
- * "blob"`. The 200 link payload is parsed from text so the helper
- * works even if the response was negotiated as `application/json`
- * via the browser's default Accept header (which sends every MIME).
- */
+/** `GET /api/discovery/candidates/{candidateId}/items/{itemId}/original`.
+ *  Bypasses `apiCall` because the backend can return a streamed binary
+ *  blob rather than JSON. Auth header + base URL still come from
+ *  `./client`, and non-2xx JSON error bodies route through
+ *  `ensureOkOrThrowApiError` so callers see the same `ApiError` shape. */
 export async function fetchCandidateOriginal(
   bearerToken: string,
   candidateId: string,

@@ -30,46 +30,9 @@ import {
   CandidateNotFound,
 } from "@/components/talent/candidate-states";
 
-/**
- * STOR-44 Phase 4 — `/employer/candidates/{candidateId}` (the
- * employer "drill-down" review page).
- *
- * The (employer) layout owns the authorization gate; this page
- * assumes the visitor is an authenticated Organization. The page
- * is a client component (this app doesn't use server actions and
- * every existing data-fetching page uses the same useState/useEffect
- * + AbortController pattern as the search page).
- *
- * State machine for the candidate itself:
- *   - `loading`  : initial fetch in flight.
- *   - `loaded`   : GET succeeded — render the candidate header +
- *                  the items list.
- *   - `notFound` : GET returned 404 `candidate_not_found`.
- *   - `error`    : GET failed for any other reason (network, 5xx,
- *                  403). Renders a retry state.
- *
- * Open-original flow:
- *   - The page owns a single active `ViewerState` (which card's
- *     viewer is open + the blob URL + metadata). Opening any other
- *     card's original first closes the current viewer so the user
- *     never sees two viewers at once (test #11). The ObjectURL
- *     is revoked on close and on unmount.
- *   - For a non-previewable inline response (.docx, oversized, etc.)
- *     the page triggers an anchor download via a temporary link
- *     and shows a transient "Download started." status under the
- *     relevant card.
- *   - For a Link response, the page pops a synchronous blank tab
- *     to defeat popup blockers, fetches the URL, validates the
- *     scheme is http(s), then redirects the tab. On failure the
- *     tab is closed and the relevant card shows the unavailable
- *     block.
- *
- * Focus:
- *   - When the candidate loads, the section heading ("Portfolio"
- *     + "{N} items") moves focus to itself via a `tabIndex={-1}`
- *     ref so keyboard users land on the list header instead of the
- *     stale "Back to results" link.
- */
+/** `/employer/candidates/{candidateId}` drill-down page. The (employer)
+ *  layout owns the authorization gate; this page assumes the visitor is
+ *  an authenticated Organization. */
 type CandidatePageState =
   | { kind: "loading" }
   | { kind: "loaded"; candidate: CandidateReview }
@@ -107,34 +70,40 @@ function CandidatePageInner() {
   const [state, setState] = useState<CandidatePageState>({ kind: "loading" });
   const [refreshVersion, setRefreshVersion] = useState(0);
 
-  // Per-card open-original status: keyed by portfolioItemId. A card
-  // looks up its own slot via `openStatuses[itemId] ?? { kind: "idle" }`.
+  // Per-card open-original status, keyed by portfolioItemId.
   const [openStatuses, setOpenStatuses] = useState<
     Record<string, OpenStatus>
   >({});
-  // Per-card transient download status (e.g. "Download started.").
-  // We key by id + emittedAt so identical text on rapid re-clicks
-  // still triggers a re-render.
+  // Per-card transient download status; keyed by id + emittedAt so
+  // identical text on rapid re-clicks still triggers a re-render.
   const [downloadStatuses, setDownloadStatuses] = useState<
     Record<string, DownloadStatus | undefined>
   >({});
-  // Single active viewer. null when no card has an inline preview
-  // mounted. The page passes `isActive` to each card based on
-  // whether `viewerState.portfolioItemId === item.portfolioItemId`.
+  // Single active viewer; null when no card has an inline preview mounted.
   const [viewerState, setViewerState] = useState<ViewerState | null>(null);
 
   const portfolioHeadingRef = useRef<HTMLHeadingElement>(null);
 
-  // Per-item "Open original" button refs. The page keeps a Map of
-  // item-id → ref-object so the inline viewer can return focus to
-  // the right button when the user closes it.
+  // Per-item "Open original" button refs so the inline viewer can
+  // return focus to the right button when the user closes it.
   const openButtonRefs = useRef<
     Map<string, { current: HTMLButtonElement | null }>
   >(new Map());
 
-  // ----------------------------------------------------------------
-  // Initial candidate fetch
-  // ----------------------------------------------------------------
+  // Pending download-revocation timers so we can clear them on
+  // unmount (avoids a late revoke racing a torn-down component).
+  const downloadTimers = useRef<
+    Set<ReturnType<typeof setTimeout>>
+  >(new Set());
+  useEffect(() => {
+    const timers = downloadTimers.current;
+    return () => {
+      timers.forEach((id) => clearTimeout(id));
+      timers.clear();
+    };
+  }, []);
+
+  // Initial candidate fetch.
   useEffect(() => {
     if (!accessToken || !candidateId) return;
     const controller = new AbortController();
@@ -162,9 +131,7 @@ function CandidatePageInner() {
     return () => controller.abort();
   }, [accessToken, candidateId, refreshVersion]);
 
-  // ----------------------------------------------------------------
   // Move focus to the section heading once the candidate loads.
-  // ----------------------------------------------------------------
   useEffect(() => {
     if (state.kind === "loaded") {
       // Schedule after the next paint so the heading has been
@@ -177,9 +144,7 @@ function CandidatePageInner() {
     return undefined;
   }, [state.kind]);
 
-  // ----------------------------------------------------------------
   // Revoke the active viewer URL on unmount.
-  // ----------------------------------------------------------------
   useEffect(() => {
     return () => {
       if (viewerState) {
@@ -188,11 +153,7 @@ function CandidatePageInner() {
     };
   }, [viewerState]);
 
-  // ----------------------------------------------------------------
-  // Open-original handler — runs the fetch + dispatches to the
-  // appropriate flow. Reads the card's current open status via
-  // `openStatuses` so it can flip it back to idle on success.
-  // ----------------------------------------------------------------
+  // Open-original handler.
   const handleOpen = useCallback(
     async (item: CandidateItem) => {
       if (!accessToken || !candidateId) return;
@@ -237,7 +198,11 @@ function CandidatePageInner() {
             return;
           }
           // Trigger a download via a temporary anchor.
-          triggerAnchorDownload(result.blob, result.fileName ?? "original");
+          triggerAnchorDownload(
+            result.blob,
+            result.fileName ?? "original",
+            downloadTimers,
+          );
           setDownloadStatuses((prev) => ({
             ...prev,
             [item.portfolioItemId]: {
@@ -269,16 +234,29 @@ function CandidatePageInner() {
         }
         // Link flow: open a synchronous blank tab so popup blockers
         // don't suppress the navigation, then redirect after the
-        // fetch resolves.
+        // fetch resolves. If the popup is blocked, surface a distinct
+        // retryable alert instead of silently failing or navigating
+        // the placeholder tab.
         const tab = window.open("", "_blank");
-        if (tab) {
-          tab.opener = null;
+        if (tab === null) {
+          setOpenStatuses((prev) => ({
+            ...prev,
+            [item.portfolioItemId]: {
+              kind: "error",
+              title: "Your browser blocked the new tab",
+              body: "Allow pop-ups for this site, then try again.",
+              retryable: true,
+            },
+          }));
+          return;
         }
+        tab.opener = null;
         try {
           const url = result.url;
-          const scheme = new URL(url).protocol.toLowerCase();
+          const parsed = new URL(url);
+          const scheme = parsed.protocol.toLowerCase();
           if (scheme !== "http:" && scheme !== "https:") {
-            tab?.close();
+            tab.close();
             setOpenStatuses((prev) => ({
               ...prev,
               [item.portfolioItemId]: {
@@ -290,14 +268,36 @@ function CandidatePageInner() {
             }));
             return;
           }
-          tab!.location.href = url;
+          // Validate the resolved host matches the host the backend
+          // reported for this item. A mismatch means the redirect
+          // target was rewritten (open-redirect), so close the tab
+          // and surface the unavailable block.
+          const expectedHost =
+            item.original?.kind === "Link"
+              ? item.original.host?.toLowerCase() ?? null
+              : null;
+          const actualHost = parsed.host.toLowerCase();
+          if (expectedHost !== null && actualHost !== expectedHost) {
+            tab.close();
+            setOpenStatuses((prev) => ({
+              ...prev,
+              [item.portfolioItemId]: {
+                kind: "error",
+                title: "This original is no longer available.",
+                body: "The student may have removed it.",
+                retryable: false,
+              },
+            }));
+            return;
+          }
+          tab.location.href = url;
           setOpenStatuses((prev) => {
             const next = { ...prev };
             delete next[item.portfolioItemId];
             return next;
           });
         } catch {
-          tab?.close();
+          tab.close();
           setOpenStatuses((prev) => ({
             ...prev,
             [item.portfolioItemId]: {
@@ -329,9 +329,9 @@ function CandidatePageInner() {
   }, [viewerState]);
 
   // Per-item id → ref-object for the card's "Open original" button.
-  // Returned refs share identity across renders within an item so the
-  // card's `ref={openButtonRef}` and the viewer's `restoreFocusRef`
-  // always point at the same DOM node.
+  // Returned refs share identity across renders so the card's
+  // ref={openButtonRef} and the viewer's restoreFocusRef always
+  // point at the same DOM node.
   function getOrCreateOpenButtonRef(
     portfolioItemId: string,
   ): { current: HTMLButtonElement | null } {
@@ -343,9 +343,6 @@ function CandidatePageInner() {
     return ref;
   }
 
-  // ----------------------------------------------------------------
-  // Render
-  // ----------------------------------------------------------------
   if (state.kind === "loading") {
     return (
       <div className="px-4 py-10 sm:px-6 lg:px-10">
@@ -437,6 +434,7 @@ function CandidatePageInner() {
                       triggerAnchorDownload(
                         viewerState.blob,
                         viewerState.fileName,
+                        downloadTimers,
                       );
                     }}
                     restoreFocusRef={getOrCreateOpenButtonRef(
@@ -454,10 +452,9 @@ function CandidatePageInner() {
 }
 
 function BackLink({ onClick }: { onClick: () => void }) {
-  // Use router.back() when there's history (per the design), else
-  // fall back to a regular link. JSDOM + jsdom-history makes
-  // `window.history.length > 1` unreliable in tests, so we always
-  // render the visible link and call back() in the click handler.
+  // Always render the visible button and call back() in the click
+  // handler; jsdom + jsdom-history makes window.history.length
+  // unreliable in tests.
   return (
     <button
       type="button"
@@ -471,12 +468,17 @@ function BackLink({ onClick }: { onClick: () => void }) {
   );
 }
 
-/**
- * Click a hidden anchor with `download={fileName}` to trigger the
- * browser's download flow. Created via `URL.createObjectURL` so
- * the anchor's href can be revoked synchronously after the click.
- */
-function triggerAnchorDownload(blob: Blob, fileName: string) {
+/** Click a hidden anchor with `download={fileName}` to trigger the
+ *  browser's download flow. Created via `URL.createObjectURL` so
+ *  the anchor's href can be revoked after the download starts. The
+ *  deferred revocation gives the click handler time to fire before
+ *  the URL becomes invalid; the timer is cleared on unmount so a
+ *  pending revoke can't run against a torn-down React tree. */
+function triggerAnchorDownload(
+  blob: Blob,
+  fileName: string,
+  timers: { current: Set<ReturnType<typeof setTimeout> | undefined> },
+) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -487,7 +489,11 @@ function triggerAnchorDownload(blob: Blob, fileName: string) {
   document.body.removeChild(a);
   // Defer revocation so the browser has time to start the download
   // (some browsers cancel the download if the URL is revoked too
-  // soon — the `setTimeout(..., 0)` gives the click handler a
-  // chance to fire).
-  setTimeout(() => URL.revokeObjectURL(url), 0);
+  // soon — 1500 ms gives the click handler and download dispatcher
+  // plenty of slack across browsers).
+  const timer = setTimeout(() => {
+    URL.revokeObjectURL(url);
+    timers.current.delete(timer);
+  }, 1500);
+  timers.current.add(timer);
 }

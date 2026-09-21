@@ -185,6 +185,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Make sure no fake-timer state leaks into the next test.
+  vi.useRealTimers();
   cleanup();
 });
 
@@ -625,6 +627,252 @@ describe("CandidatePage — open original flow", () => {
 
     windowOpenSpy.mockRestore();
   });
+
+  it("shows the 'browser blocked the new tab' alert when window.open returns null and does not navigate", async () => {
+    vi.mocked(getCandidate).mockResolvedValue(
+      makeReview({ items: [sharedLinkItem()] }),
+    );
+    vi.mocked(fetchCandidateOriginal).mockResolvedValue({
+      kind: "link",
+      url: "https://github.com/example/project",
+    });
+
+    const windowOpenSpy = vi
+      .spyOn(window, "open")
+      .mockReturnValue(null);
+
+    render(<CandidatePage />);
+    await screen.findByText("Nadia Rahman");
+    fireEvent.click(screen.getByRole("button", { name: /Open link/i }));
+
+    await waitFor(() => {
+      expect(windowOpenSpy).toHaveBeenCalledWith("", "_blank");
+    });
+    expect(
+      screen.getByText("Your browser blocked the new tab"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Allow pop-ups for this site, then try again."),
+    ).toBeInTheDocument();
+    // The retryable Try again button is present.
+    expect(
+      screen.getByRole("button", { name: /Try again/i }),
+    ).toBeInTheDocument();
+    // And the unavailable-block title must NOT be present.
+    expect(
+      screen.queryByText("This original is no longer available."),
+    ).not.toBeInTheDocument();
+
+    // Clicking Try again must re-fire the request.
+    fireEvent.click(screen.getByRole("button", { name: /Try again/i }));
+    await waitFor(() => {
+      expect(fetchCandidateOriginal).toHaveBeenCalledTimes(2);
+    });
+
+    windowOpenSpy.mockRestore();
+  });
+
+  it("closes the opened tab and shows the unavailable block when the resolved URL host does not match the item's host", async () => {
+    const mismatchItem: CandidateItem = {
+      ...sharedLinkItem(),
+      portfolioItemId: "pi-host",
+      // Item claims github.com but the backend returns evil.example.
+      original: {
+        kind: "Link",
+        available: true,
+        fileName: null,
+        contentType: null,
+        sizeBytes: null,
+        host: "github.com",
+      },
+    };
+    vi.mocked(getCandidate).mockResolvedValue(
+      makeReview({ items: [mismatchItem] }),
+    );
+    vi.mocked(fetchCandidateOriginal).mockResolvedValue({
+      kind: "link",
+      url: "https://evil.example/x",
+    });
+
+    const tab = {
+      opener: undefined as unknown,
+      location: { href: "" },
+      close: vi.fn(),
+    };
+    const windowOpenSpy = vi
+      .spyOn(window, "open")
+      .mockReturnValue(tab as unknown as Window);
+
+    render(<CandidatePage />);
+    await screen.findByText("Nadia Rahman");
+    fireEvent.click(screen.getByRole("button", { name: /Open link/i }));
+
+    await waitFor(() => {
+      expect(tab.close).toHaveBeenCalledTimes(1);
+    });
+    expect(tab.location.href).toBe("");
+    expect(
+      screen.getByText("This original is no longer available."),
+    ).toBeInTheDocument();
+
+    windowOpenSpy.mockRestore();
+  });
+
+  it("matches the resolved URL host case-insensitively against the item's host and navigates", async () => {
+    const item: CandidateItem = {
+      ...sharedLinkItem(),
+      portfolioItemId: "pi-case",
+      original: {
+        kind: "Link",
+        available: true,
+        fileName: null,
+        contentType: null,
+        sizeBytes: null,
+        host: "GitHub.COM",
+      },
+    };
+    vi.mocked(getCandidate).mockResolvedValue(makeReview({ items: [item] }));
+    vi.mocked(fetchCandidateOriginal).mockResolvedValue({
+      kind: "link",
+      url: "https://github.com/example/project",
+    });
+
+    const tab = {
+      opener: undefined as unknown,
+      location: { href: "" },
+      close: vi.fn(),
+    };
+    const windowOpenSpy = vi
+      .spyOn(window, "open")
+      .mockReturnValue(tab as unknown as Window);
+
+    render(<CandidatePage />);
+    await screen.findByText("Nadia Rahman");
+    fireEvent.click(screen.getByRole("button", { name: /Open link/i }));
+
+    await waitFor(() => {
+      expect(tab.location.href).toBe("https://github.com/example/project");
+    });
+    expect(tab.close).not.toHaveBeenCalled();
+
+    windowOpenSpy.mockRestore();
+  });
+
+  it("revokes the download object URL after 1500 ms when an inline-safe response is downloaded", async () => {
+    // Use fake timers so we can drive the 1500 ms revocation timer
+    // deterministically. setInterval is left un-faked so waitFor
+    // polling still ticks.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      vi.mocked(getCandidate).mockResolvedValue(
+        makeReview({ items: [sharedDocxItem()] }),
+      );
+      vi.mocked(fetchCandidateOriginal).mockResolvedValue({
+        kind: "blob",
+        blob: new Blob([new Uint8Array([0])], {
+          type:
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        }),
+        contentType:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        fileName: "project.docx",
+        inline: false,
+      });
+
+      const createCallsBefore = (
+        URL.createObjectURL as unknown as { mock: { calls: unknown[] } }
+      ).mock.calls.length;
+
+      render(<CandidatePage />);
+      // Render + findByText happen synchronously when setTimeout is
+      // faked (React 19 uses MessageChannel in jsdom); advance a
+      // tick so the initial fetch + render commit settles.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      // Use the synchronous query to avoid polling — the heading
+      // text is in the initial render output.
+      screen.getByText("Nadia Rahman");
+      fireEvent.click(screen.getByRole("button", { name: /Open original/i }));
+
+      // Flush the click handler's microtasks + the awaited fetch so
+      // the synchronous createObjectURL call has run.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      const downloadedUrl = (
+        URL.createObjectURL as unknown as {
+          mock: { results: { value: string }[] };
+        }
+      ).mock.results.at(-1)!.value;
+      expect(
+        (URL.createObjectURL as unknown as { mock: { calls: unknown[] } }).mock
+          .calls.length,
+      ).toBeGreaterThan(createCallsBefore);
+
+      // Nothing revoked yet.
+      expect(URL.revokeObjectURL).not.toHaveBeenCalledWith(downloadedUrl);
+
+      // Advance just short of 1500 ms — the timer must NOT have fired.
+      vi.advanceTimersByTime(1499);
+      expect(URL.revokeObjectURL).not.toHaveBeenCalledWith(downloadedUrl);
+
+      // Advance past 1500 ms — the timer must fire.
+      vi.advanceTimersByTime(1);
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith(downloadedUrl);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears the pending download-revocation timer on unmount", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      vi.mocked(getCandidate).mockResolvedValue(
+        makeReview({ items: [sharedDocxItem()] }),
+      );
+      vi.mocked(fetchCandidateOriginal).mockResolvedValue({
+        kind: "blob",
+        blob: new Blob([new Uint8Array([0])], {
+          type:
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        }),
+        contentType:
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        fileName: "project.docx",
+        inline: false,
+      });
+
+      const revokeCallsBefore = (
+        URL.revokeObjectURL as unknown as { mock: { calls: unknown[] } }
+      ).mock.calls.length;
+
+      const { unmount } = render(<CandidatePage />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      screen.getByText("Nadia Rahman");
+      fireEvent.click(screen.getByRole("button", { name: /Open original/i }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      // Unmount before the 1500 ms timer fires.
+      unmount();
+      // Advance well past 1500 ms.
+      vi.advanceTimersByTime(5000);
+
+      // The pending revoke timer must have been cancelled; the URL
+      // should not have been revoked.
+      expect(
+        (URL.revokeObjectURL as unknown as { mock: { calls: unknown[] } }).mock
+          .calls.length,
+      ).toBe(revokeCallsBefore);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("CandidatePage — open error states", () => {
@@ -861,8 +1109,3 @@ describe("CandidatePage — copy hygiene", () => {
     expectCopyConstraints(document.body.textContent ?? "");
   });
 });
-
-// Unused imports would fail in strict mode — keep them imported so the
-// tree-shake doesn't drop the test-imports.
-void act;
-void cleanup;

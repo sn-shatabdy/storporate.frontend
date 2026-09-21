@@ -146,6 +146,45 @@ describe("parseContentDispositionFileName", () => {
     const { parseContentDispositionFileName } = await loadClient();
     expect(parseContentDispositionFileName("inline")).toBeNull();
   });
+
+  it("strips CR and LF characters from the parsed file name (replaces with a space)", async () => {
+    const { parseContentDispositionFileName } = await loadClient();
+    expect(
+      parseContentDispositionFileName(
+        "inline; filename=\"weird\r\nname.pdf\"",
+      ),
+    ).toBe("weird  name.pdf");
+    expect(
+      parseContentDispositionFileName(
+        "attachment; filename*=UTF-8''multi%0Dline.txt",
+      ),
+    ).toBe("multi line.txt");
+  });
+
+  it("caps the returned file name at 200 characters, preserving the extension", async () => {
+    const { parseContentDispositionFileName } = await loadClient();
+    const longBase = "a".repeat(250);
+    const longName = `${longBase}.pdf`;
+    const result = parseContentDispositionFileName(
+      `inline; filename="${longName}"`,
+    );
+    expect(result).not.toBeNull();
+    expect(result!.length).toBe(200);
+    expect(result!.endsWith(".pdf")).toBe(true);
+    // 200 - 4 (extension) = 196 base chars preserved
+    expect(result!.slice(0, -4)).toBe("a".repeat(196));
+  });
+
+  it("caps the returned file name at 200 characters without an extension", async () => {
+    const { parseContentDispositionFileName } = await loadClient();
+    const longName = "a".repeat(500);
+    const result = parseContentDispositionFileName(
+      `inline; filename="${longName}"`,
+    );
+    expect(result).not.toBeNull();
+    expect(result!.length).toBe(200);
+    expect(result).toBe("a".repeat(200));
+  });
 });
 
 describe("isInlineContentDisposition", () => {

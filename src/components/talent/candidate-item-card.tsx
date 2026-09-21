@@ -19,32 +19,9 @@ import {
 
 import { formatFileSize, typeLabelFor } from "./helpers";
 
-/**
- * STOR-44 Phase 4 — the per-portfolio-item card on the drill-down
- * page. Composition only (the parent page owns the "viewer open"
- * coordination + ObjectURL lifecycle so only one viewer is ever
- * mounted at a time).
- *
- * Layout (per the approved canvas):
- *   - Title row: source-kind icon tile + label (17 px Space Grotesk
- *     semibold, break-words) + category pill (accent palette).
- *   - Shared items: each skill rendered as a pill + (optional
- *     "Why this rating" + reason) paragraph; skills whose reason
- *     is null/empty render only the pill.
- *   - Unshared items: a wrapping row of band pills only.
- *   - Shared items with an original: an "Open original" / "Open
- *     link" row showing the file name + (type · size) — or link
- *     host + a "Link. Opens in a new tab." note — and a primary
- *     button that delegates to the parent for the actual fetch.
- *   - Unshared items: a small footer line with a Lock icon and
- *     the "The student has not shared the original." copy.
- *
- * The "only one viewer open at a time" rule and the ObjectURL
- * revoke lifecycle are owned by the page (see
- * `CandidatePage`). This card surfaces the open-flow state via
- * `openStatus` so the button can show the spinner / re-enable
- * itself after the parent rejects the promise.
- */
+/** Per-portfolio-item card on the drill-down page. Composition
+ *  only — the parent page owns the "viewer open" coordination +
+ *  ObjectURL lifecycle so only one viewer is ever mounted at a time. */
 export interface CandidateItemCardProps {
   item: CandidateItem;
   candidateId: string;
@@ -132,15 +109,10 @@ export function CandidateItemCard({
         <OriginalRow
           original={original}
           status={openStatus}
-          // The parent's `onOpen` is shared between File and Link;
-          // the parent reads `item.original` to decide which flow.
           onOpen={onOpen}
-          // Disable the button only while this card's own fetch is
-          // in flight. The "another item's viewer is currently
-          // mounted" case is NOT a disable condition — the design
-          // specifies that opening another item's original closes
-          // the current viewer first, so the user must be able to
-          // initiate that swap by clicking the button.
+          // Disable only while this card's own fetch is in flight;
+          // opening another item's original closes the current viewer
+          // first, so that case is not a disable condition.
           disabled={openStatus.kind === "pending"}
           buttonRef={openButtonRef}
         />
@@ -370,13 +342,10 @@ function ItemError({
   );
 }
 
-/**
- * Map an `ApiError` thrown by `fetchCandidateOriginal` into the
- * local `OpenStatus` shape. Exported so the page can reuse the
- * mapping if it owns the fetch directly. Returns the "no longer
- * available" sentinel for `original_not_shared` / `original_unavailable`
- * and the "Try again" sentinel for any other error / network failure.
- */
+/** Map an `ApiError` thrown by `fetchCandidateOriginal` into the local
+ *  `OpenStatus` shape. Returns the "no longer available" sentinel for
+ *  `original_not_shared` / `original_unavailable` and the "Try again"
+ *  sentinel for any other error / network failure. */
 export function openStatusForError(error: unknown): OpenStatus {
   if (
     error instanceof ApiError &&

@@ -5,32 +5,12 @@ import { Download, X } from "lucide-react";
 
 import { typeLabelFor } from "./helpers";
 
-/**
- * STOR-44 Phase 4 — the inline file preview that appears directly
- * below the item's "Open original" row when the user opens a File
- * item. Reads its metadata (file name, MIME type, size) and the
- * browser-renderable blob URL from props so the parent can own
- * the fetch + ObjectURL lifecycle.
- *
- * Renders:
- *   - A header with file name + "{TYPE} · {size}" subtitle, a
- *     "Download" outline button, and a square 36px close icon
- *     button (aria-label="Close").
- *   - A body that picks an appropriate element for the MIME type:
- *       - `application/pdf`          → `<iframe sandbox="" title={name}>`
- *       - image/*                    → `<img alt={name} className="object-contain">`
- *       - `video/mp4` / `video/webm` → `<video controls>`
- *       - anything else              → not rendered (the parent
- *                                      guards against this viewer's
- *                                      body being mounted for
- *                                      non-previewable types).
- *
- * Focus management:
- *   - On open, focus moves to the close button.
- *   - On close, focus returns to `restoreFocusRef.current` (the
- *     "Open original" button the user clicked).
- *   - Escape closes the viewer.
- */
+/** Inline file preview that appears directly below the item's
+ *  "Open original" row when the user opens a File item. The parent
+ *  owns the fetch + ObjectURL lifecycle; this viewer just renders
+ *  metadata + a blob URL. Focus moves to the close button on open,
+ *  returns to `restoreFocusRef.current` on close, and Escape closes
+ *  the viewer. */
 export interface OriginalViewerProps {
   fileName: string;
   contentType: string;
@@ -79,8 +59,8 @@ export function OriginalViewer({
   function handleClose() {
     onClose();
     // Returning focus is best-effort — the parent might unmount us
-    // synchronously, in which case the ref will be the still-mounted
-    // "Open original" button.
+    // synchronously, in which case the ref still points at the
+    // mounted "Open original" button.
     restoreFocusRef.current?.focus();
   }
 
@@ -93,7 +73,6 @@ export function OriginalViewer({
   return (
     <div
       role="dialog"
-      aria-modal="true"
       aria-label={fileName}
       className="mt-3 overflow-hidden rounded-2xl border bg-card"
       style={{
@@ -144,9 +123,8 @@ export function OriginalViewer({
             className="h-full w-full border-0"
           />
         ) : isImage ? (
-          // The src is a per-session blob URL, not a static asset, so
-          // `next/image` cannot optimize it. The spec calls for a plain
-          // <img alt=...>.
+          // The src is a per-session blob URL, so next/image cannot
+          // optimize it; the spec calls for a plain <img alt=...>.
           // eslint-disable-next-line @next/next/no-img-element
           <img
             alt={fileName}
@@ -166,10 +144,8 @@ export function OriginalViewer({
   );
 }
 
-/** "12 B" / "340 KB" / "2.4 MB" for the viewer's subtitle line. Same
- *  format as `formatFileSize` but always 1-decimal above KB so the
- *  viewer's text matches `"{type} · {size}"` literally without the
- *  helper's null-coalesce branching. */
+/** "12 B" / "340 KB" / "2.4 MB" for the viewer's subtitle line;
+ *  always 1-decimal above KB so the subtitle matches "{type} · {size}". */
 function humanSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
