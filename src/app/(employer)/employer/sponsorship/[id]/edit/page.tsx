@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Sparkles } from "lucide-react";
 
 import { ApiError } from "@/lib/api/errors";
 import {
@@ -13,6 +13,7 @@ import {
   type SponsorshipGoalSetRequest,
   type SponsorshipGoalSetResponse,
 } from "@/lib/api/sponsorship";
+import { Button } from "@/components/ui/button";
 import { AdvisorErrorState } from "@/components/advisor/advisor-error-state";
 import { JobsListSkeleton } from "@/components/jobs/job-states";
 import { GoalForm } from "@/components/sponsorship/goal-form";
@@ -75,6 +76,14 @@ export default function EditGoalSetPage() {
           <h1 className="mt-3 font-heading text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
             Edit goal set
           </h1>
+          {state.kind === "loaded" && id ? (
+            <Button asChild variant="outline" size="lg" className="mt-3 h-9">
+              <Link href={`/employer/sponsorship/${encodeURIComponent(id)}/matches`}>
+                <Sparkles className="size-4" aria-hidden />
+                See matching clubs
+              </Link>
+            </Button>
+          ) : null}
         </div>
 
         {state.kind === "loading" ? (

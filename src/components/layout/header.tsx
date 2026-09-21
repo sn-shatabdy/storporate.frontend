@@ -98,6 +98,8 @@ export function Header() {
   const isClubProfileActive = pathname?.startsWith("/club/profile") ?? false;
   // STOR-70 — clubs browse what companies want from sponsoring.
   const isClubSponsorsActive = pathname?.startsWith("/club/sponsors") ?? false;
+  // STOR-71 — companies that fit the club.
+  const isClubMatchesActive = pathname?.startsWith("/club/matches") ?? false;
 
   async function handleLogout() {
     setMenuOpen(false);
@@ -178,6 +180,7 @@ export function Header() {
             className="flex items-center gap-1 overflow-x-auto whitespace-nowrap py-1"
             isProfileActive={isClubProfileActive}
             isSponsorsActive={isClubSponsorsActive}
+            isMatchesActive={isClubMatchesActive}
           />
         </div>
       )}
@@ -216,6 +219,7 @@ export function Header() {
               className="flex items-center gap-1"
               isProfileActive={isClubProfileActive}
               isSponsorsActive={isClubSponsorsActive}
+            isMatchesActive={isClubMatchesActive}
             />
           )}
         </div>
@@ -491,10 +495,12 @@ export function ClubNav({
   className,
   isProfileActive,
   isSponsorsActive = false,
+  isMatchesActive = false,
 }: {
   className?: string;
   isProfileActive: boolean;
   isSponsorsActive?: boolean;
+  isMatchesActive?: boolean;
 }) {
   return (
     <nav
@@ -507,6 +513,10 @@ export function ClubNav({
       {/* STOR-70 — what companies want from sponsoring. */}
       <StudentNavLink href="/club/sponsors" active={isSponsorsActive}>
         Sponsors
+      </StudentNavLink>
+      {/* STOR-71 — companies that fit the club. */}
+      <StudentNavLink href="/club/matches" active={isMatchesActive}>
+        Matches
       </StudentNavLink>
     </nav>
   );
