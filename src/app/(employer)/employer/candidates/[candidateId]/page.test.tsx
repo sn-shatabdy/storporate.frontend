@@ -37,7 +37,19 @@ vi.mock("@/lib/api/candidateReview", async () => {
   };
 });
 
+vi.mock("@/lib/api/outreach", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/api/outreach")>(
+    "@/lib/api/outreach",
+  );
+  return {
+    ...actual,
+    addToShortlist: vi.fn(),
+    removeFromShortlist: vi.fn(),
+  };
+});
+
 import { useSession } from "next-auth/react";
+import { addToShortlist, removeFromShortlist } from "@/lib/api/outreach";
 import { useParams } from "next/navigation";
 import { ApiError } from "@/lib/api/errors";
 import {
@@ -1106,6 +1118,40 @@ describe("CandidatePage — copy hygiene", () => {
         screen.getByRole("heading", { name: /no longer available/i }),
       ).toBeInTheDocument();
     });
+    expectCopyConstraints(document.body.textContent ?? "");
+  });
+});
+
+describe("CandidatePage: shortlist and invite (STOR-68)", () => {
+  it("shows Save to shortlist and Invite in the header and toggles Saved", async () => {
+    vi.mocked(getCandidate).mockResolvedValue(makeReview());
+    vi.mocked(addToShortlist).mockResolvedValue({
+      candidateId: CANDIDATE_ID,
+      displayName: "Nadia Rahman",
+      headline: null,
+      university: null,
+      fieldOfStudy: null,
+      studyYear: null,
+      available: true,
+      savedAt: "2026-09-20T10:00:00Z",
+      conversation: null,
+    });
+    vi.mocked(removeFromShortlist).mockResolvedValue(undefined);
+    render(<CandidatePage />);
+
+    const save = await screen.findByRole("button", { name: "Save to shortlist" });
+    expect(screen.getByRole("button", { name: "Invite" })).toBeInTheDocument();
+    fireEvent.click(save);
+    await waitFor(() => expect(screen.getByText("Saved")).toBeInTheDocument());
+    expect(addToShortlist).toHaveBeenCalledWith(ACCESS_TOKEN, CANDIDATE_ID);
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove from shortlist" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Save to shortlist" }),
+      ).toBeInTheDocument(),
+    );
+    expect(removeFromShortlist).toHaveBeenCalledWith(ACCESS_TOKEN, CANDIDATE_ID);
     expectCopyConstraints(document.body.textContent ?? "");
   });
 });

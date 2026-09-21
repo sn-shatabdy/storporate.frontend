@@ -13,6 +13,7 @@ import {
   type CandidateReview,
 } from "@/lib/api/candidateReview";
 
+import { CandidateActions } from "@/components/outreach/candidate-actions";
 import {
   CandidateHeader,
 } from "@/components/talent/candidate-header";
@@ -383,7 +384,16 @@ function CandidatePageInner() {
     <div className="px-4 py-10 sm:px-6 lg:px-10">
       <div className="mx-auto flex w-full max-w-[820px] flex-col gap-7">
         <BackLink onClick={() => router.back()} />
-        <CandidateHeader candidate={candidate} />
+        <CandidateHeader
+          candidate={candidate}
+          actions={
+            <CandidateActions
+              candidateId={candidate.candidateId}
+              displayName={candidate.displayName}
+              align="start"
+            />
+          }
+        />
 
         <div className="flex items-baseline justify-between">
           <h2

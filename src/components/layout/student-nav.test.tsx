@@ -125,4 +125,22 @@ describe("StudentNav", () => {
       "page",
     );
   });
+
+  it("renders an Inbox link to /dashboard/inbox and marks it active", () => {
+    const base = {
+      isDashboardActive: false,
+      isPortfolioActive: false,
+      isAdvisorActive: false,
+      isVisibilityActive: false,
+    };
+    const { rerender } = render(<StudentNav {...base} />);
+    const link = screen.getByRole("link", { name: "Inbox" });
+    expect(link).toHaveAttribute("href", "/dashboard/inbox");
+    expect(link).not.toHaveAttribute("aria-current");
+    rerender(<StudentNav {...base} isInboxActive />);
+    expect(screen.getByRole("link", { name: "Inbox" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
 });

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 
+import { CandidateActions } from "@/components/outreach/candidate-actions";
 import type { TalentSearchResultItem } from "@/lib/api/talentSearch";
 
 import { CitedItemList } from "./cited-item-list";
@@ -25,7 +26,7 @@ import { SkillBandPill } from "./skill-band-pill";
  *   - Row 3: the plain-language reason.
  *   - Row 4: matched-skills pills (only when there are any).
  *   - Row 5: cited items, only when there are any.
- *   - Row 6 (STOR-44): "View portfolio" link to
+ *   - Row 6 (STOR-44, STOR-68): "Save to shortlist", "Invite" and the "View portfolio" link to
  *     `/employer/candidates/{candidateId}` — wraps a Next `<Link>`
  *     styled as an outline button. Right-aligned with a top border.
  */
@@ -104,17 +105,22 @@ export function ResultCard({ result }: ResultCardProps) {
       {hasCitedItems && <CitedItemList items={result.citedItems} />}
 
       <div
-        className="flex justify-end border-t pt-3.5"
+        className="border-t pt-3.5"
         style={{ borderColor: "var(--border)" }}
       >
-        <Link
-          href={`/employer/candidates/${result.candidateId}`}
-          className="inline-flex h-9 items-center gap-2 rounded-[10px] border bg-white px-3.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-          style={{ borderColor: "#e7dfc0" }}
+        <CandidateActions
+          candidateId={result.candidateId}
+          displayName={result.displayName}
         >
-          View portfolio
-          <ArrowRight className="size-4" aria-hidden />
-        </Link>
+          <Link
+            href={`/employer/candidates/${result.candidateId}`}
+            className="inline-flex h-9 items-center gap-2 rounded-[10px] border bg-white px-3.5 text-sm font-semibold text-foreground transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            style={{ borderColor: "#e7dfc0" }}
+          >
+            View portfolio
+            <ArrowRight className="size-4" aria-hidden />
+          </Link>
+        </CandidateActions>
       </div>
     </li>
   );

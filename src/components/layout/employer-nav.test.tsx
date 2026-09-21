@@ -46,4 +46,29 @@ describe("EmployerNav", () => {
       "page",
     );
   });
+
+  it("renders Shortlist and Messages links and marks each active", () => {
+    const { rerender } = render(<EmployerNav isSearchActive={false} />);
+    expect(screen.getByRole("link", { name: "Shortlist" })).toHaveAttribute(
+      "href",
+      "/employer/shortlist",
+    );
+    expect(screen.getByRole("link", { name: "Messages" })).toHaveAttribute(
+      "href",
+      "/employer/messages",
+    );
+    expect(screen.getByRole("link", { name: "Shortlist" })).not.toHaveAttribute(
+      "aria-current",
+    );
+    rerender(<EmployerNav isSearchActive={false} isShortlistActive />);
+    expect(screen.getByRole("link", { name: "Shortlist" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    rerender(<EmployerNav isSearchActive={false} isMessagesActive />);
+    expect(screen.getByRole("link", { name: "Messages" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
 });
