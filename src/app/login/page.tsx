@@ -21,6 +21,8 @@ const RESEND_WINDOW_SECONDS = 60;
 // successful AuthResult by `landingRouteForActorType` below.
 const DEFAULT_LANDING_ROUTE = "/account";
 const ORGANIZATION_LANDING_ROUTE = "/employer/search";
+// STOR-69 — Clubs land on their profile builder.
+const CLUB_LANDING_ROUTE = "/club/profile";
 
 type Step = "email" | "code" | "actorType";
 
@@ -37,6 +39,7 @@ function isValidEmail(value: string): boolean {
  *  user out of the app. */
 function landingRouteForActorType(actorType: string): string {
   if (actorType === "Organization") return ORGANIZATION_LANDING_ROUTE;
+  if (actorType === "Club") return CLUB_LANDING_ROUTE;
   return DEFAULT_LANDING_ROUTE;
 }
 
