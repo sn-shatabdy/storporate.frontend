@@ -57,6 +57,9 @@ beforeEach(() => {
         fit: { label: "Not yet", matched: [], missing: ["Power BI", "Excel", "SQL"] },
       }),
     ],
+    page: 1,
+    pageSize: 20,
+    total: 3,
   });
 });
 
@@ -79,7 +82,12 @@ describe("employer applicants", () => {
       await screen.findByRole("heading", { level: 1, name: "Junior data analyst" }),
     ).toBeInTheDocument();
     expect(getMyPosting).toHaveBeenCalledWith(ACCESS_TOKEN, "job-1", expect.anything());
-    expect(listApplicants).toHaveBeenCalledWith(ACCESS_TOKEN, "job-1", expect.anything());
+    expect(listApplicants).toHaveBeenCalledWith(
+      ACCESS_TOKEN,
+      "job-1",
+      expect.anything(),
+      { page: 1, pageSize: 20 },
+    );
     expect(screen.getByRole("link", { name: "Your openings" })).toHaveAttribute(
       "href",
       "/employer/jobs",
@@ -110,34 +118,41 @@ describe("employer applicants", () => {
     expect(within(list[2]).queryByText(/Matches:/)).not.toBeInTheDocument();
   });
 
-  it("filters by status", async () => {
+  it("renders the SegmentedControl filter with counts", async () => {
     render(<ApplicantsPage />);
     await cards();
-    const group = screen.getByRole("group", { name: "Filter by status" });
-    expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual([
-      "All",
-      "Submitted",
-      "Viewed",
-      "Shortlisted",
-      "Not selected",
-    ]);
-    expect(within(group).getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
+    const fieldset = screen.getByRole("group", { name: "Filter by status" });
+    // The SegmentedControl puts the label on a label element wrapping a
+    // radio input, so we read the visible label text.
+    expect(within(fieldset).getByText("All (3)")).toBeInTheDocument();
+    expect(within(fieldset).getByText("Submitted (1)")).toBeInTheDocument();
+    expect(within(fieldset).getByText("Viewed (0)")).toBeInTheDocument();
+    expect(within(fieldset).getByText("Shortlisted (1)")).toBeInTheDocument();
+    expect(within(fieldset).getByText("Not selected (1)")).toBeInTheDocument();
+    const allLabel = within(fieldset).getByText("All (3)").closest("label");
+    expect(allLabel).toHaveClass("bg-primary");
+  });
 
-    fireEvent.click(within(group).getByRole("button", { name: "Shortlisted" }));
+  it("filters by status using the SegmentedControl", async () => {
+    render(<ApplicantsPage />);
+    await cards();
+    const fieldset = screen.getByRole("group", { name: "Filter by status" });
+
+    fireEvent.click(within(fieldset).getByText("Shortlisted (1)"));
     let list = await cards();
     expect(list).toHaveLength(1);
     expect(list[0]).toHaveTextContent("Imran Hossain");
 
-    fireEvent.click(within(group).getByRole("button", { name: "Not selected" }));
+    fireEvent.click(within(fieldset).getByText("Not selected (1)"));
     list = await cards();
     expect(list).toHaveLength(1);
     expect(list[0]).toHaveTextContent("Tania Akter");
 
-    fireEvent.click(within(group).getByRole("button", { name: "Viewed" }));
+    fireEvent.click(within(fieldset).getByText("Viewed (0)"));
     expect(await screen.findByText("No applications here")).toBeInTheDocument();
     expect(screen.queryByRole("article")).not.toBeInTheDocument();
 
-    fireEvent.click(within(group).getByRole("button", { name: "All" }));
+    fireEvent.click(within(fieldset).getByText("All (3)"));
     expect(await cards()).toHaveLength(3);
   });
 
@@ -175,7 +190,8 @@ describe("employer applicants", () => {
     vi.mocked(getApplicant).mockResolvedValue(makeApplicant({ id: "a1", status: "Viewed" }));
     render(<ApplicantsPage />);
     await cards();
-    fireEvent.click(screen.getByRole("button", { name: "Submitted" }));
+    const fieldset = screen.getByRole("group", { name: "Filter by status" });
+    fireEvent.click(within(fieldset).getByText("Submitted (1)"));
     const list = await cards();
     expect(list).toHaveLength(1);
     fireEvent.click(within(list[0]).getByRole("button", { name: "Open" }));
@@ -196,7 +212,7 @@ describe("employer applicants", () => {
     expect(within(first).queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("shortlists an applicant and shows the pressed state", async () => {
+  it("shortlists an applicant and shows the pressed state with the success token", async () => {
     vi.mocked(getApplicant).mockResolvedValue(makeApplicant({ id: "a1", status: "Viewed" }));
     vi.mocked(setApplicantStatus).mockResolvedValue(
       makeApplicant({ id: "a1", status: "Shortlisted" }),
@@ -218,9 +234,13 @@ describe("employer applicants", () => {
     expect(within(first).getByRole("button", { name: "Shortlist" })).toBeDisabled();
     expect(within(first).getByRole("button", { name: "Not selected" })).toBeEnabled();
     expect(within(first).getAllByText("Shortlisted").length).toBeGreaterThan(0);
+    // The pressed Shortlist button styles itself with the success tokens
+    // (no ad hoc TONES map).
+    const pressed = within(first).getByRole("button", { name: "Shortlist" });
+    expect(pressed).toHaveClass("bg-success-soft", "text-success", "border-success");
   });
 
-  it("marks an applicant Not selected and shows a busy state", async () => {
+  it("marks an applicant Not selected and shows a busy state with the warning token", async () => {
     vi.mocked(getApplicant).mockResolvedValue(makeApplicant({ id: "a1", status: "Viewed" }));
     let resolve!: (v: ReturnType<typeof makeApplicant>) => void;
     vi.mocked(setApplicantStatus).mockReturnValue(
@@ -245,6 +265,8 @@ describe("employer applicants", () => {
       ),
     );
     expect(setApplicantStatus).toHaveBeenCalledWith(ACCESS_TOKEN, "job-1", "a1", "NotSelected");
+    const pressed = within(first).getByRole("button", { name: "Not selected" });
+    expect(pressed).toHaveClass("bg-warning-soft", "text-warning", "border-warning");
   });
 
   it("shows an inline error when saving a decision fails", async () => {
@@ -263,7 +285,12 @@ describe("employer applicants", () => {
   });
 
   it("shows the empty state", async () => {
-    vi.mocked(listApplicants).mockResolvedValue({ items: [] });
+    vi.mocked(listApplicants).mockResolvedValue({
+      items: [],
+      page: 1,
+      pageSize: 20,
+      total: 0,
+    });
     render(<ApplicantsPage />);
     expect(await screen.findByText("No applications yet.")).toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "Filter by status" })).not.toBeInTheDocument();
@@ -282,5 +309,88 @@ describe("employer applicants", () => {
     render(<ApplicantsPage />);
     expect(await screen.findByText("This opening was not found")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Your openings" })).toBeInTheDocument();
+  });
+
+  it("shows Load more when the server reports more pages and appends on click", async () => {
+    vi.mocked(listApplicants)
+      .mockResolvedValueOnce({
+        items: [
+          makeApplicant({ id: "a1", displayName: "Nadia Rahman", status: "Submitted" }),
+        ],
+        page: 1,
+        pageSize: 20,
+        total: 47,
+      })
+      .mockResolvedValueOnce({
+        items: [makeApplicant({ id: "a2", displayName: "Imran Hossain", status: "Shortlisted" })],
+        page: 2,
+        pageSize: 20,
+        total: 47,
+      });
+    render(<ApplicantsPage />);
+    expect(await screen.findByText("Showing 1 of 47 applicants")).toBeInTheDocument();
+    const loadMore = await screen.findByRole("button", { name: "Load more applicants" });
+    fireEvent.click(loadMore);
+    await waitFor(() =>
+      expect(screen.getByText("Showing 2 of 47 applicants")).toBeInTheDocument(),
+    );
+    expect(listApplicants).toHaveBeenLastCalledWith(
+      ACCESS_TOKEN,
+      "job-1",
+      expect.anything(),
+      { page: 2, pageSize: 20 },
+    );
+  });
+
+  it("hides Load more when the loaded slice is the last page", async () => {
+    vi.mocked(listApplicants).mockResolvedValue({
+      items: [makeApplicant({ id: "a1" })],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    render(<ApplicantsPage />);
+    await cards();
+    expect(screen.queryByRole("button", { name: /Load more/ })).not.toBeInTheDocument();
+    expect(screen.getByText("Showing 1 of 1 applicant")).toBeInTheDocument();
+  });
+
+  it("updates the SegmentedControl counts after Load more", async () => {
+    vi.mocked(listApplicants)
+      .mockResolvedValueOnce({
+        items: [makeApplicant({ id: "a1", status: "Submitted" })],
+        page: 1,
+        pageSize: 20,
+        total: 47,
+      })
+      .mockResolvedValueOnce({
+        items: [makeApplicant({ id: "a2", status: "Shortlisted" })],
+        page: 2,
+        pageSize: 20,
+        total: 47,
+      });
+    render(<ApplicantsPage />);
+    const fieldset = await screen.findByRole("group", { name: "Filter by status" });
+    expect(within(fieldset).getByText("Submitted (1)")).toBeInTheDocument();
+    expect(within(fieldset).getByText("Shortlisted (0)")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Load more applicants" }));
+    await waitFor(() =>
+      expect(within(fieldset).getByText("Shortlisted (1)")).toBeInTheDocument(),
+    );
+  });
+
+  it("exposes the result count on an aria-live polite status line", async () => {
+    vi.mocked(listApplicants).mockResolvedValue({
+      items: [makeApplicant({ id: "a1" })],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    });
+    render(<ApplicantsPage />);
+    // Wait until the loaded status line with the count is in the DOM;
+    // the skeleton also uses role="status" so we can't grab the first match.
+    const status = await screen.findByText("Showing 1 of 1 applicant");
+    expect(status).toHaveAttribute("aria-live", "polite");
+    expect(status).toHaveTextContent("Showing 1 of 1 applicant");
   });
 });

@@ -61,9 +61,15 @@ beforeEach(() => {
       makeApplication({ id: "a3", status: "Shortlisted", fitLabel: "Strong match" }),
       makeApplication({ id: "a4", status: "NotSelected", fitLabel: "Not yet" }),
     ],
+    page: 1,
+    pageSize: 20,
+    total: 4,
   });
   vi.mocked(listApplicants).mockResolvedValue({
     items: [makeApplicant({ id: "a1" }), makeApplicant({ id: "a2", status: "Shortlisted" })],
+    page: 1,
+    pageSize: 20,
+    total: 2,
   });
   vi.mocked(getApplicant).mockResolvedValue(makeApplicant({ id: "a1", status: "Viewed" }));
 });
@@ -104,12 +110,29 @@ describe("applications copy guard", () => {
     assertCleanCopy(container.textContent ?? "");
   });
 
+  it("student detail: deadline-passed apply attempt", async () => {
+    vi.mocked(applyToJob).mockRejectedValue(
+      new ApiError("job_posting_deadline_passed", "x", 409),
+    );
+    const { container } = render(<OpeningDetailPage />);
+    await screen.findByRole("heading", { level: 1 });
+    const applySection = screen.getByRole("region", { name: "Apply" });
+    fireEvent.click(within(applySection).getByRole("button", { name: "Apply" }));
+    expect(await screen.findByRole("button", { name: "Applications closed" })).toBeDisabled();
+    assertCleanCopy(container.textContent ?? "");
+  });
+
   it("my applications: loaded, empty and error", async () => {
     const loaded = render(<MyApplicationsPage />);
     await screen.findAllByRole("article");
     assertCleanCopy(loaded.container.textContent ?? "");
     cleanup();
-    vi.mocked(listMyApplications).mockResolvedValue({ items: [] });
+    vi.mocked(listMyApplications).mockResolvedValue({
+      items: [],
+      page: 1,
+      pageSize: 20,
+      total: 0,
+    });
     const empty = render(<MyApplicationsPage />);
     await screen.findByText("You have not applied yet.");
     assertCleanCopy(empty.container.textContent ?? "");
@@ -128,7 +151,12 @@ describe("applications copy guard", () => {
     await within(cards[0]).findByRole("region", { name: /Details for/ });
     assertCleanCopy(container.textContent ?? "");
     cleanup();
-    vi.mocked(listApplicants).mockResolvedValue({ items: [] });
+    vi.mocked(listApplicants).mockResolvedValue({
+      items: [],
+      page: 1,
+      pageSize: 20,
+      total: 0,
+    });
     const empty = render(<ApplicantsPage />);
     await screen.findByText("No applications yet.");
     assertCleanCopy(empty.container.textContent ?? "");

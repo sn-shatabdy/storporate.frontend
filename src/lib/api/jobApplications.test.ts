@@ -63,6 +63,8 @@ describe("student endpoints", () => {
     ["application_display_name_required", 400],
     ["application_display_name_invalid", 400],
     ["job_posting_not_found", 404],
+    ["job_posting_deadline_passed", 409],
+    ["application_conflict", 409],
   ])("applyToJob throws ApiError with %s", async (errorCode, status) => {
     const { applyToJob } = await loadClient();
     stubFetch(json({ errorCode, message: "x" }, { status }));
@@ -71,26 +73,71 @@ describe("student endpoints", () => {
     expect(error).toMatchObject({ errorCode, status });
   });
 
-  it("listMyApplications GETs the collection", async () => {
+  it("listMyApplications GETs the collection with no query by default", async () => {
     const { listMyApplications } = await loadClient();
-    const fetchMock = stubFetch(json({ items: [] }));
+    const fetchMock = stubFetch(
+      json({ items: [], page: 1, pageSize: 20, total: 0 }),
+    );
     const result = await listMyApplications("tok");
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(`${API_BASE}/api/discovery/applications`);
     expect(init.method).toBe("GET");
-    expect(result).toEqual({ items: [] });
+    expect(result).toEqual({ items: [], page: 1, pageSize: 20, total: 0 });
+  });
+
+  it("listMyApplications forwards page and pageSize when given", async () => {
+    const { listMyApplications } = await loadClient();
+    const fetchMock = stubFetch(
+      json({ items: [{ id: "a2" }], page: 2, pageSize: 20, total: 47 }),
+    );
+    const result = await listMyApplications("tok", undefined, {
+      page: 2,
+      pageSize: 20,
+    });
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      `${API_BASE}/api/discovery/applications?page=2&pageSize=20`,
+    );
+    expect(result).toEqual({
+      items: [{ id: "a2" }],
+      page: 2,
+      pageSize: 20,
+      total: 47,
+    });
+  });
+
+  it("listMyApplications drops invalid page/pageSize from the URL", async () => {
+    const { listMyApplications } = await loadClient();
+    const fetchMock = stubFetch(
+      json({ items: [], page: 1, pageSize: 20, total: 0 }),
+    );
+    await listMyApplications("tok", undefined, { page: 0, pageSize: -1 });
+    expect(fetchMock.mock.calls[0][0]).toBe(`${API_BASE}/api/discovery/applications`);
   });
 });
 
 describe("employer endpoints", () => {
-  it("listApplicants GETs the posting's applications", async () => {
+  it("listApplicants GETs the posting's applications with no query by default", async () => {
     const { listApplicants } = await loadClient();
-    const fetchMock = stubFetch(json({ items: [] }));
-    await listApplicants("tok", "p1");
+    const fetchMock = stubFetch(
+      json({ items: [], page: 1, pageSize: 20, total: 0 }),
+    );
+    const result = await listApplicants("tok", "p1");
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(`${API_BASE}/api/discovery/job-postings/p1/applications`);
     expect(init.method).toBe("GET");
     expect(init.headers.Authorization).toBe("Bearer tok");
+    expect(result).toEqual({ items: [], page: 1, pageSize: 20, total: 0 });
+  });
+
+  it("listApplicants forwards page and pageSize when given", async () => {
+    const { listApplicants } = await loadClient();
+    const fetchMock = stubFetch(
+      json({ items: [], page: 2, pageSize: 20, total: 50 }),
+    );
+    await listApplicants("tok", "p1", undefined, { page: 2, pageSize: 20 });
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      `${API_BASE}/api/discovery/job-postings/p1/applications?page=2&pageSize=20`,
+    );
   });
 
   it("getApplicant GETs one application with ids encoded", async () => {
@@ -121,5 +168,18 @@ describe("employer endpoints", () => {
       errorCode: "application_not_found",
       status: 404,
     });
+  });
+
+  it("throws ApiError with application_conflict on 409 from a status save", async () => {
+    const { setApplicantStatus } = await loadClient();
+    stubFetch(
+      json(
+        { errorCode: "application_conflict", message: "x" },
+        { status: 409 },
+      ),
+    );
+    await expect(
+      setApplicantStatus("tok", "p1", "a1", "Shortlisted"),
+    ).rejects.toMatchObject({ errorCode: "application_conflict", status: 409 });
   });
 });

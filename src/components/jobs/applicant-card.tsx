@@ -2,6 +2,8 @@
 
 import { ChevronDown, Loader2, Check } from "lucide-react";
 
+import { cn } from "cn";
+
 import type {
   ApplicantDecision,
   ApplicantItem,
@@ -141,7 +143,10 @@ export function ApplicantCard({
         >
           {open ? "Hide" : "Open"}
           <ChevronDown
-            className={`size-4 transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`}
+            className={cn(
+              "size-4 transition-transform motion-reduce:transition-none",
+              open ? "rotate-180" : "",
+            )}
             aria-hidden
           />
         </Button>
@@ -153,7 +158,7 @@ export function ApplicantCard({
           role="region"
           aria-label={`Details for ${applicant.displayName}`}
           aria-busy={loading}
-          className="flex flex-col gap-5 rounded-xl border bg-[#fffdf6] p-4 sm:p-5"
+          className="flex flex-col gap-5 rounded-xl border bg-secondary p-4 sm:p-5"
           style={{ borderColor: "var(--border)" }}
         >
           {loading ? (
@@ -215,7 +220,7 @@ export function ApplicantCard({
                 pressed={applicant.status === "Shortlisted"}
                 saving={savingDecision === "Shortlisted"}
                 disabled={savingDecision !== null || loading}
-                tone="green"
+                tone="success"
                 onClick={() => onDecide("Shortlisted")}
               />
               <DecisionButton
@@ -223,7 +228,7 @@ export function ApplicantCard({
                 pressed={applicant.status === "NotSelected"}
                 saving={savingDecision === "NotSelected"}
                 disabled={savingDecision !== null || loading}
-                tone="rose"
+                tone="warning"
                 onClick={() => onDecide("NotSelected")}
               />
             </div>
@@ -260,10 +265,21 @@ function ItemRow({ item }: { item: ApplicantItem }) {
   );
 }
 
-const TONES = {
-  green: { bg: "#e6f4ea", fg: "#1e7b34", border: "rgba(30,123,52,0.35)" },
-  rose: { bg: "#fbeee7", fg: "#a4460f", border: "rgba(164,70,15,0.35)" },
-} as const;
+const DECISION_TONE_CLASS: Record<
+  "success" | "warning",
+  { bg: string; text: string; border: string }
+> = {
+  success: {
+    bg: "bg-success-soft",
+    text: "text-success",
+    border: "border-success",
+  },
+  warning: {
+    bg: "bg-warning-soft",
+    text: "text-warning",
+    border: "border-warning",
+  },
+};
 
 function DecisionButton({
   label,
@@ -277,10 +293,10 @@ function DecisionButton({
   pressed: boolean;
   saving: boolean;
   disabled: boolean;
-  tone: keyof typeof TONES;
+  tone: "success" | "warning";
   onClick: () => void;
 }) {
-  const t = TONES[tone];
+  const t = DECISION_TONE_CLASS[tone];
   return (
     <Button
       type="button"
@@ -289,12 +305,10 @@ function DecisionButton({
       aria-pressed={pressed}
       disabled={pressed || disabled}
       onClick={onClick}
-      className="h-9 disabled:opacity-100"
-      style={
-        pressed
-          ? { backgroundColor: t.bg, color: t.fg, borderColor: t.border }
-          : undefined
-      }
+      className={cn(
+        "h-9 disabled:opacity-100",
+        pressed && cn(t.bg, t.text, t.border),
+      )}
     >
       {saving ? (
         <Loader2
@@ -308,4 +322,3 @@ function DecisionButton({
     </Button>
   );
 }
-

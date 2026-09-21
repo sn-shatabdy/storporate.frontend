@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
+import { Loader2, Plus } from "lucide-react";
 
 import {
   listMyApplications,
@@ -18,31 +19,94 @@ import {
 } from "@/components/jobs/job-pills";
 import { JobsEmptyState, JobsListSkeleton } from "@/components/jobs/job-states";
 
+const PAGE_SIZE = 20;
+
 /** `/dashboard/applications`: every application the student has sent. */
 export default function MyApplicationsPage() {
   const { data: session } = useSession();
   const accessToken = session?.accessToken ?? null;
 
-  const [items, setItems] = useState<ApplicationResponse[] | null>(null);
+  const [items, setItems] = useState<ApplicationResponse[]>([]);
+  const [total, setTotal] = useState<number | null>(null);
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState(false);
   const [failed, setFailed] = useState(false);
   const [version, setVersion] = useState(0);
+  const hasItems = useRef(false);
+
+  // First-page fetch — replaces items, runs on mount, retry, or paging reset.
+  const fetchFirstPage = useCallback(
+    async (signal: AbortSignal) => {
+      try {
+        const result = await listMyApplications(accessToken!, signal, {
+          page: 1,
+          pageSize: PAGE_SIZE,
+        });
+        if (signal.aborted) return;
+        setItems(result.items);
+        setTotal(result.total);
+        setPage(1);
+        hasItems.current = true;
+      } catch {
+        if (signal.aborted) return;
+        setFailed(true);
+      } finally {
+        if (!signal.aborted) {
+          setLoading(false);
+        }
+      }
+    },
+    [accessToken],
+  );
 
   useEffect(() => {
     if (!accessToken) return;
     const controller = new AbortController();
-    (async () => {
-      setFailed(false);
-      try {
-        const result = await listMyApplications(accessToken, controller.signal);
-        if (controller.signal.aborted) return;
-        setItems(result.items);
-      } catch {
-        if (controller.signal.aborted) return;
-        setFailed(true);
-      }
-    })();
+    // Same data-fetching pattern used in dashboard/jobs/page.tsx:
+    // flip spinner/error flags synchronously to reflect the in-flight
+    // request. The lint rule treats this as the same "known error"
+    // pattern used in audit-log/page.tsx.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLoading(true);
+    setFailed(false);
+    setLoadMoreError(false);
+    void fetchFirstPage(controller.signal);
     return () => controller.abort();
-  }, [accessToken, version]);
+  }, [accessToken, fetchFirstPage, version]);
+
+  const canLoadMore = useMemo(() => {
+    if (total === null) return false;
+    return page * PAGE_SIZE < total;
+  }, [page, total]);
+
+  async function loadMore() {
+    if (!accessToken || !canLoadMore || loadingMore) return;
+    setLoadingMore(true);
+    setLoadMoreError(false);
+    const next = page + 1;
+    const controller = new AbortController();
+    try {
+      const result = await listMyApplications(accessToken, controller.signal, {
+        page: next,
+        pageSize: PAGE_SIZE,
+      });
+      if (controller.signal.aborted) return;
+      setItems((prev) => [...prev, ...result.items]);
+      setTotal(result.total);
+      setPage(next);
+    } catch {
+      setLoadMoreError(true);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  const count = items.length;
+  const totalShown = total ?? count;
+  const noun = totalShown === 1 ? "application" : "applications";
+  const showingText = `Showing ${count} of ${totalShown} ${noun}`;
 
   return (
     <div className="px-4 py-10 sm:px-6 lg:px-10">
@@ -56,14 +120,14 @@ export default function MyApplicationsPage() {
           </p>
         </div>
 
-        {failed && items === null ? (
+        {loading && items.length === 0 ? (
+          <JobsListSkeleton label="Loading your applications." />
+        ) : failed && items.length === 0 ? (
           <AdvisorErrorState
             title="Could not load your applications"
             message="Check your connection and try again."
             onRetry={() => setVersion((v) => v + 1)}
           />
-        ) : items === null ? (
-          <JobsListSkeleton label="Loading your applications." />
         ) : items.length === 0 ? (
           <JobsEmptyState
             title="You have not applied yet."
@@ -75,12 +139,13 @@ export default function MyApplicationsPage() {
             }
           />
         ) : (
-          <div className="flex flex-col gap-3">
+          <>
             <p
-              className="text-xs font-medium text-muted-foreground"
+              role="status"
               aria-live="polite"
+              className="text-xs font-medium text-muted-foreground"
             >
-              {items.length === 1 ? "1 application" : `${items.length} applications`}
+              {showingText}
             </p>
             <ul className="flex flex-col gap-3">
               {items.map((application) => (
@@ -89,7 +154,45 @@ export default function MyApplicationsPage() {
                 </li>
               ))}
             </ul>
-          </div>
+            {canLoadMore ? (
+              <div className="flex flex-col items-center gap-2.5 pt-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="lg"
+                  className="h-12 w-full border-[1.5px] border-border px-4 text-foreground sm:w-auto"
+                  onClick={() => void loadMore()}
+                  disabled={loadingMore}
+                  aria-busy={loadingMore}
+                >
+                  {loadingMore ? (
+                    <Loader2
+                      className="size-4 animate-spin motion-reduce:animate-none"
+                      aria-hidden
+                    />
+                  ) : (
+                    <Plus className="size-4" aria-hidden />
+                  )}
+                  {loadingMore ? "Loading more…" : "Load more applications"}
+                </Button>
+                {loadMoreError ? (
+                  <p
+                    role="alert"
+                    className="flex flex-wrap items-center gap-2 text-[14px] font-medium text-danger"
+                  >
+                    Could not load more applications.
+                    <button
+                      type="button"
+                      onClick={() => void loadMore()}
+                      className="underline underline-offset-2"
+                    >
+                      Try again
+                    </button>
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+          </>
         )}
       </div>
     </div>
@@ -104,7 +207,7 @@ function ApplicationCard({ application }: { application: ApplicationResponse }) 
       : "";
   return (
     <article
-      className="relative flex flex-col gap-3 rounded-2xl border bg-card p-5 shadow-sm transition-colors focus-within:ring-2 focus-within:ring-ring/40 hover:bg-[#fffdf6]"
+      className="relative flex flex-col gap-3 rounded-2xl border bg-card p-5 shadow-sm transition-colors focus-within:ring-2 focus-within:ring-ring/40 hover:bg-accent"
       style={{ borderColor: "var(--border)" }}
     >
       <div className="flex items-start justify-between gap-3">
