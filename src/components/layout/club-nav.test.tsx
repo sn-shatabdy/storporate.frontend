@@ -42,7 +42,7 @@ describe("ClubNav sponsors link", () => {
     expect(link).toHaveAttribute("href", "/club/sponsors");
     expect(link).not.toHaveAttribute("aria-current");
     const names = screen.getAllByRole("link").map((l) => l.textContent);
-    expect(names).toEqual(["My profile", "Sponsors"]);
+    expect(names).toEqual(["My profile", "Sponsors", "Matches"]);
     rerender(<ClubNav isProfileActive={false} isSponsorsActive />);
     expect(screen.getByRole("link", { name: "Sponsors" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "My profile" })).not.toHaveAttribute("aria-current");
@@ -60,5 +60,17 @@ describe("EmployerNav sponsorship link", () => {
       "aria-current",
       "page",
     );
+  });
+});
+
+describe("ClubNav matches link", () => {
+  it("renders a Matches link to /club/matches and marks it active", () => {
+    const { rerender } = render(<ClubNav isProfileActive={false} />);
+    const link = screen.getByRole("link", { name: "Matches" });
+    expect(link).toHaveAttribute("href", "/club/matches");
+    expect(link).not.toHaveAttribute("aria-current");
+    rerender(<ClubNav isProfileActive={false} isMatchesActive />);
+    expect(screen.getByRole("link", { name: "Matches" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Sponsors" })).not.toHaveAttribute("aria-current");
   });
 });

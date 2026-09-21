@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Pause, Pencil, Play, Trash2 } from "lucide-react";
+import { Pause, Pencil, Play, Sparkles, Trash2 } from "lucide-react";
 
 import type { SponsorshipGoalSetResponse } from "@/lib/api/sponsorship";
 import { Button } from "@/components/ui/button";
@@ -115,6 +115,12 @@ export function GoalSetCard({
           className="flex flex-wrap gap-2 border-t pt-4"
           style={{ borderColor: "var(--border)" }}
         >
+          <Button asChild size="lg" className="h-9">
+            <Link href={`/employer/sponsorship/${encodeURIComponent(goal.id)}/matches`}>
+              <Sparkles className="size-4" aria-hidden />
+              See matching clubs
+            </Link>
+          </Button>
           <Button asChild variant="outline" size="lg" className="h-9">
             <Link href={`/employer/sponsorship/${encodeURIComponent(goal.id)}/edit`}>
               <Pencil className="size-4" aria-hidden />
