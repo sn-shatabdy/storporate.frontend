@@ -92,7 +92,12 @@ export function Header() {
   // STOR-69 — companies browse published club profiles.
   const isEmployerClubsActive =
     pathname?.startsWith("/employer/clubs") ?? false;
+  // STOR-70 — the company's sponsorship goal sets.
+  const isEmployerSponsorshipActive =
+    pathname?.startsWith("/employer/sponsorship") ?? false;
   const isClubProfileActive = pathname?.startsWith("/club/profile") ?? false;
+  // STOR-70 — clubs browse what companies want from sponsoring.
+  const isClubSponsorsActive = pathname?.startsWith("/club/sponsors") ?? false;
 
   async function handleLogout() {
     setMenuOpen(false);
@@ -163,6 +168,7 @@ export function Header() {
             isShortlistActive={isEmployerShortlistActive}
             isMessagesActive={isEmployerMessagesActive}
             isClubsActive={isEmployerClubsActive}
+            isSponsorshipActive={isEmployerSponsorshipActive}
           />
         </div>
       )}
@@ -171,6 +177,7 @@ export function Header() {
           <ClubNav
             className="flex items-center gap-1 overflow-x-auto whitespace-nowrap py-1"
             isProfileActive={isClubProfileActive}
+            isSponsorsActive={isClubSponsorsActive}
           />
         </div>
       )}
@@ -201,12 +208,14 @@ export function Header() {
               isShortlistActive={isEmployerShortlistActive}
               isMessagesActive={isEmployerMessagesActive}
               isClubsActive={isEmployerClubsActive}
+              isSponsorshipActive={isEmployerSponsorshipActive}
             />
           )}
           {isClub && (
             <ClubNav
               className="flex items-center gap-1"
               isProfileActive={isClubProfileActive}
+              isSponsorsActive={isClubSponsorsActive}
             />
           )}
         </div>
@@ -434,6 +443,7 @@ export function EmployerNav({
   isShortlistActive = false,
   isMessagesActive = false,
   isClubsActive = false,
+  isSponsorshipActive = false,
 }: {
   className?: string;
   isSearchActive: boolean;
@@ -441,6 +451,7 @@ export function EmployerNav({
   isShortlistActive?: boolean;
   isMessagesActive?: boolean;
   isClubsActive?: boolean;
+  isSponsorshipActive?: boolean;
 }) {
   return (
     <nav
@@ -464,6 +475,10 @@ export function EmployerNav({
       <StudentNavLink href="/employer/clubs" active={isClubsActive}>
         Clubs
       </StudentNavLink>
+      {/* STOR-70 — what the company wants from sponsoring. */}
+      <StudentNavLink href="/employer/sponsorship" active={isSponsorshipActive}>
+        Sponsorship
+      </StudentNavLink>
     </nav>
   );
 }
@@ -475,9 +490,11 @@ export function EmployerNav({
 export function ClubNav({
   className,
   isProfileActive,
+  isSponsorsActive = false,
 }: {
   className?: string;
   isProfileActive: boolean;
+  isSponsorsActive?: boolean;
 }) {
   return (
     <nav
@@ -486,6 +503,10 @@ export function ClubNav({
     >
       <StudentNavLink href="/club/profile" active={isProfileActive}>
         My profile
+      </StudentNavLink>
+      {/* STOR-70 — what companies want from sponsoring. */}
+      <StudentNavLink href="/club/sponsors" active={isSponsorsActive}>
+        Sponsors
       </StudentNavLink>
     </nav>
   );
