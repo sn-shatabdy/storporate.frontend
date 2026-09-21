@@ -377,20 +377,18 @@ describe("EmployerSearchPage — completed results", () => {
       "Has built Power BI dashboards from messy sales data.",
     );
 
-    // Skill pills: Strong should be #e6f4ea / #1e7b34; Developing should be
-    // #fbeee7 / #a4460f. The card has TWO Power BI · Strong pills (one in
-    // the matched-skills row, one in the cited-item list), so grab the
-    // first and assert the colors are consistent.
+    // Skill pills: Strong uses success tokens; Developing uses warning
+    // tokens. The card has TWO Power BI · Strong pills (one in the
+    // matched-skills row, one in the cited-item list), so grab them all
+    // and assert the classes are consistent.
     const strongPills = screen.getAllByText(/Power BI · Strong/);
     expect(strongPills.length).toBeGreaterThanOrEqual(1);
     for (const pill of strongPills) {
-      expect(pill.style.backgroundColor).toBe("rgb(230, 244, 234)");
-      expect(pill.style.color).toBe("rgb(30, 123, 52)");
+      expect(pill).toHaveClass("bg-success-soft", "text-success");
     }
     const developingPills = screen.getAllByText(/Excel · Developing/);
     expect(developingPills.length).toBe(1);
-    expect(developingPills[0].style.backgroundColor).toBe("rgb(251, 238, 231)");
-    expect(developingPills[0].style.color).toBe("rgb(164, 70, 15)");
+    expect(developingPills[0]).toHaveClass("bg-warning-soft", "text-warning");
 
     // Cited item.
     expect(screen.getByText(/From their portfolio/i)).toBeInTheDocument();

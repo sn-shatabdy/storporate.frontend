@@ -93,22 +93,19 @@ describe("employer applicants", () => {
     expect(
       within(first).getByText("BUET · Computer Science · Year 3 · Applied Sep 20, 2026"),
     ).toBeInTheDocument();
-    expect(within(first).getByText("Submitted")).toHaveStyle({
-      backgroundColor: "#f3efdd",
-      color: "#6e6488",
-    });
+    expect(within(first).getByText("Submitted")).toHaveClass("bg-secondary", "text-muted-foreground");
     expect(within(first).getByText("Good match")).toBeInTheDocument();
     expect(first).toHaveTextContent("Matches: Power BI, Excel");
     expect(first).toHaveTextContent("Not yet shown: SQL");
     expect(within(first).getByText("Sales dashboard")).toBeInTheDocument();
-    expect(within(first).getByText("Power BI · Strong")).toHaveStyle({
-      backgroundColor: "#e6f4ea",
-      color: "#1e7b34",
-    });
-    expect(within(first).getByText("Excel · Developing")).toHaveStyle({
-      backgroundColor: "#fbeee7",
-      color: "#a4460f",
-    });
+    expect(within(first).getByText("Power BI · Strong")).toHaveClass(
+      "bg-success-soft",
+      "text-success",
+    );
+    expect(within(first).getByText("Excel · Developing")).toHaveClass(
+      "bg-warning-soft",
+      "text-warning",
+    );
     expect(within(list[2]).getByText("Not yet")).toBeInTheDocument();
     expect(within(list[2]).queryByText(/Matches:/)).not.toBeInTheDocument();
   });
@@ -156,10 +153,7 @@ describe("employer applicants", () => {
 
     await waitFor(() => expect(within(first).getByText("Viewed")).toBeInTheDocument());
     expect(getApplicant).toHaveBeenCalledWith(ACCESS_TOKEN, "job-1", "a1");
-    expect(within(first).getByText("Viewed")).toHaveStyle({
-      backgroundColor: "#e7f0ed",
-      color: "#345a73",
-    });
+    expect(within(first).getByText("Viewed")).toHaveClass("bg-info-soft", "text-info");
     expect(within(first).queryByText("Submitted")).not.toBeInTheDocument();
 
     const panel = within(first).getByRole("region", { name: "Details for Nadia Rahman" });

@@ -53,6 +53,7 @@ beforeEach(() => {
       makePosting({ id: "b", status: "Paused" }),
       makePosting({ id: "c", status: "Closed" }),
     ],
+    counts: { open: 1, paused: 1, closed: 1, total: 3 },
   });
   vi.mocked(getMyPosting).mockResolvedValue(makePosting());
   vi.mocked(listJobs).mockResolvedValue({
@@ -60,6 +61,9 @@ beforeEach(() => {
       makeJob({ id: "j1" }),
       makeJob({ id: "j2", fit: { label: "Not yet", matched: [], missing: ["SQL", "Excel"] } }),
     ],
+    page: 1,
+    pageSize: 20,
+    total: 2,
   });
   vi.mocked(getJob).mockResolvedValue(makeJob());
 });
@@ -76,10 +80,14 @@ function assertCleanCopy(text: string) {
 }
 
 describe("copy guard", () => {
-  it("employer list", async () => {
+  it("employer list with close dialog open", async () => {
     const { container } = render(<EmployerJobsPage />);
     await screen.findAllByRole("article");
-    fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
+    const more = await screen.findAllByRole("button", { name: /More actions/ });
+    fireEvent.click(more[0]);
+    const closeItem = await screen.findByRole("menuitem", { name: "Close opening" });
+    fireEvent.click(closeItem);
+    await screen.findByRole("dialog");
     assertCleanCopy(container.textContent ?? "");
   });
 
@@ -113,14 +121,14 @@ describe("copy guard", () => {
   });
 
   it("empty and error states", async () => {
-    vi.mocked(listJobs).mockResolvedValue({ items: [] });
+    vi.mocked(listJobs).mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0 });
     const a = render(<OpeningsPage />);
     await screen.findByText("No openings yet");
     assertCleanCopy(a.container.textContent ?? "");
     cleanup();
     vi.mocked(listMyPostings).mockRejectedValue(new Error("x"));
     const b = render(<EmployerJobsPage />);
-    await screen.findByText("Could not load your openings");
+    await screen.findByText(/Could not load your openings/);
     assertCleanCopy(b.container.textContent ?? "");
   });
 });

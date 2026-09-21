@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { ChevronLeft, Lock } from "lucide-react";
+import { Banknote, Building2, Calendar, ChevronLeft, Lock, MapPin, Users } from "lucide-react";
 
 import { ApiError } from "@/lib/api/errors";
 import {
@@ -14,8 +14,11 @@ import {
   type JobPostingRequest,
 } from "@/lib/api/jobPostings";
 import { AdvisorErrorState } from "@/components/advisor/advisor-error-state";
+import { Button } from "@/components/ui/button";
 import { JobsEmptyState, JobsListSkeleton } from "@/components/jobs/job-states";
 import {
+  formatOpenings,
+  formatPayRange,
   KindPill,
   SkillChip,
   StatusPill,
@@ -23,6 +26,9 @@ import {
 } from "@/components/jobs/job-pills";
 import { PostingForm } from "@/components/jobs/posting-form";
 import { valuesFromPosting } from "@/components/jobs/posting-helpers";
+import { deadlineText } from "@/components/jobs/deadline-text";
+
+import { cn } from "cn";
 
 type LoadState =
   | { kind: "loading" }
@@ -68,11 +74,15 @@ export default function EditPostingPage() {
     router.push("/employer/jobs?saved=updated");
   }
 
+  function refetch() {
+    setVersion((v) => v + 1);
+  }
+
   const closed = state.kind === "loaded" && state.posting.status === "Closed";
 
   return (
     <div className="px-4 py-10 sm:px-6 lg:px-10">
-      <div className="mx-auto flex w-full max-w-[820px] flex-col gap-6">
+      <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-6">
         <div>
           <Link
             href="/employer/jobs"
@@ -97,7 +107,7 @@ export default function EditPostingPage() {
           <AdvisorErrorState
             title="Could not load this opening"
             message="Check your connection and try again."
-            onRetry={() => setVersion((v) => v + 1)}
+            onRetry={refetch}
           />
         ) : closed ? (
           <ClosedSummary posting={state.posting} />
@@ -107,6 +117,7 @@ export default function EditPostingPage() {
             submitLabel="Save changes"
             cancelHref="/employer/jobs"
             onSubmit={handleSubmit}
+            onConflict={refetch}
           />
         )}
       </div>
@@ -115,6 +126,22 @@ export default function EditPostingPage() {
 }
 
 function ClosedSummary({ posting }: { posting: JobPosting }) {
+  const deadline = deadlineText(posting.applicationDeadline ?? null);
+  const pay = formatPayRange(
+    posting.compensation?.min ?? null,
+    posting.compensation?.max ?? null,
+    "per month",
+  );
+  const deadlineLabel =
+    deadline.kind === "none"
+      ? null
+      : deadline.kind === "past"
+        ? deadline.text
+        : deadline.kind === "today"
+          ? "Closes today"
+          : deadline.kind === "soon"
+            ? deadline.text
+            : `Closes ${deadline.text.replace(/^Closes /, "")}`;
   return (
     <div className="flex flex-col gap-4">
       <div
@@ -129,27 +156,45 @@ function ClosedSummary({ posting }: { posting: JobPosting }) {
         </p>
       </div>
       <article
-        className="flex flex-col gap-4 rounded-2xl border bg-card p-5 shadow-sm sm:p-6"
+        className="flex flex-col gap-5 rounded-2xl border bg-card p-5 shadow-sm sm:p-7"
         style={{ borderColor: "var(--border)" }}
       >
-        <div className="flex items-start justify-between gap-3">
-          <h2 className="font-heading text-xl font-semibold leading-snug text-foreground">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <KindPill kind={posting.kind} />
+            <StatusPill status={posting.status} icon={Lock} />
+          </div>
+          <h2 className="font-heading text-[26px] font-semibold leading-tight text-foreground">
             {posting.title}
           </h2>
-          <StatusPill status={posting.status} />
         </div>
-        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
-          <KindPill kind={posting.kind} />
-          <span className="text-sm text-foreground">{posting.companyName}</span>
-          <span className="text-sm text-muted-foreground">
+        <div className="flex flex-wrap gap-x-4 gap-y-2">
+          <Meta icon={<Building2 className="size-4" aria-hidden />}>
+            {posting.companyName}
+          </Meta>
+          <Meta icon={<MapPin className="size-4" aria-hidden />}>
             {workModeAndLocation(posting.workMode, posting.location)}
-          </span>
+          </Meta>
+          {deadlineLabel ? (
+            <Meta icon={<Calendar className="size-4" aria-hidden />}>
+              {deadlineLabel}
+            </Meta>
+          ) : null}
+          <Meta icon={<Users className="size-4" aria-hidden />}>
+            {formatOpenings(posting.openings)}
+          </Meta>
+          {pay ? (
+            <Meta icon={<Banknote className="size-4" aria-hidden />}>{pay}</Meta>
+          ) : null}
         </div>
-        <p className="whitespace-pre-line text-sm leading-6 text-foreground">
+        <p className="whitespace-pre-line text-[15px] leading-[1.6] text-foreground">
           {posting.description}
         </p>
         {posting.requiredSkills.length > 0 ? (
-          <ul className="flex flex-wrap gap-1.5" aria-label="Required skills">
+          <ul
+            className="flex flex-wrap gap-2"
+            aria-label="Required skills"
+          >
             {posting.requiredSkills.map((skill) => (
               <li key={skill}>
                 <SkillChip>{skill}</SkillChip>
@@ -157,7 +202,40 @@ function ClosedSummary({ posting }: { posting: JobPosting }) {
             ))}
           </ul>
         ) : null}
+        <div className="flex flex-wrap items-center gap-2 border-t pt-5" style={{ borderColor: "var(--border)" }}>
+          <Button asChild variant="outline" size="lg" className="h-11 px-4">
+            <Link href={`/employer/jobs/${encodeURIComponent(posting.id)}/applicants`}>
+              <Users className="size-[18px]" aria-hidden />
+              View applicants ({posting.applicantCount ?? 0})
+            </Link>
+          </Button>
+          <Button asChild variant="outline" size="lg" className="h-11 px-4">
+            <Link href="/employer/jobs">Back to openings</Link>
+          </Button>
+        </div>
       </article>
     </div>
+  );
+}
+
+function Meta({
+  icon,
+  children,
+  className,
+}: {
+  icon: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 text-[14px] font-medium text-muted-foreground",
+        className,
+      )}
+    >
+      {icon}
+      {children}
+    </span>
   );
 }

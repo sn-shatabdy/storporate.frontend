@@ -46,6 +46,20 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  /* STOR-66 Phase 2 — semantic status tokens (success, warning, danger,
+     info) for the employer screens. The soft pair is the background
+     tone and the fg is the foreground tone, kept in the existing
+     Bolivian Beauty palette so existing pill styles can be expressed
+     as `bg-success-soft text-success` and stay aligned with the
+     design canvas. */
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -84,6 +98,20 @@
   --border: #e7dfc0;
   --input: #e7dfc0;
   --ring: #4d7ea0;
+  /* STOR-66 Phase 2 — status palette (paired: foreground + soft
+     background) added alongside the existing shadcn tokens. The values
+     come from the pill palette that already lives in job-pills.tsx /
+     mockup file and is now promoted into the design system so the
+     employer screens can use semantic Tailwind utilities like
+     `bg-success-soft text-success` instead of raw hex. */
+  --success: #1e7b34;
+  --success-soft: #e6f4ea;
+  --warning: #a4460f;
+  --warning-soft: #fbeee7;
+  --danger: #b3261e;
+  --danger-soft: #fbe9e7;
+  --info: #345a73;
+  --info-soft: #e8eef2;
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);

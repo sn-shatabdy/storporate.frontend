@@ -42,13 +42,27 @@ const BODY = {
 describe("employer endpoints", () => {
   it("listMyPostings GETs the collection with the bearer token", async () => {
     const { listMyPostings } = await loadClient();
-    const fetchMock = stubFetch(json({ items: [] }));
+    const fetchMock = stubFetch(json({ items: [], counts: { open: 0, paused: 0, closed: 0, total: 0 } }));
     const result = await listMyPostings("tok");
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(`${API_BASE}/api/discovery/job-postings`);
     expect(init.method).toBe("GET");
     expect(init.headers.Authorization).toBe("Bearer tok");
-    expect(result).toEqual({ items: [] });
+    expect(result.counts.total).toBe(0);
+  });
+
+  it("listMyPostings sends status and a trimmed q, and skips them when empty", async () => {
+    const { listMyPostings } = await loadClient();
+    const fetchMock = stubFetch(json({ items: [], counts: { open: 0, paused: 0, closed: 0, total: 0 } }));
+    await listMyPostings("tok", { status: "Open", q: "  power bi " });
+    const url = new URL(fetchMock.mock.calls[0][0]);
+    expect(url.searchParams.get("status")).toBe("Open");
+    expect(url.searchParams.get("q")).toBe("power bi");
+
+    const second = stubFetch(json({ items: [], counts: { open: 0, paused: 0, closed: 0, total: 0 } }));
+    await listMyPostings("tok", { q: "   " });
+    const secondUrl = new URL(second.mock.calls[0][0]);
+    expect(secondUrl.searchParams.get("q")).toBeNull();
   });
 
   it("getMyPosting GETs one posting with the id encoded", async () => {
@@ -105,19 +119,33 @@ describe("employer endpoints", () => {
     );
     await expect(updatePosting("tok", "j1", BODY)).rejects.toBeInstanceOf(ApiError);
   });
+
+  it("maps job_posting_conflict and the phase 1 400 codes through ApiError", async () => {
+    const { updatePosting } = await loadClient();
+    stubFetch(
+      json(
+        { errorCode: "job_posting_compensation_invalid", message: "x" },
+        { status: 400 },
+      ),
+    );
+    await expect(updatePosting("tok", "j1", BODY)).rejects.toMatchObject({
+      errorCode: "job_posting_compensation_invalid",
+      status: 400,
+    });
+  });
 });
 
 describe("student endpoints", () => {
   it("listJobs sends no query string without filters", async () => {
     const { listJobs } = await loadClient();
-    const fetchMock = stubFetch(json({ items: [] }));
+    const fetchMock = stubFetch(json({ items: [], page: 1, pageSize: 20, total: 0 }));
     await listJobs("tok");
     expect(fetchMock.mock.calls[0][0]).toBe(`${API_BASE}/api/discovery/jobs`);
   });
 
   it("listJobs sends kind, workMode and trimmed q, and skips empties", async () => {
     const { listJobs } = await loadClient();
-    const fetchMock = stubFetch(json({ items: [] }));
+    const fetchMock = stubFetch(json({ items: [], page: 1, pageSize: 20, total: 0 }));
     await listJobs("tok", { kind: "Internship", workMode: "Remote", q: "  power bi " });
     const url = new URL(fetchMock.mock.calls[0][0]);
     expect(url.pathname).toBe("/api/discovery/jobs");
@@ -125,9 +153,19 @@ describe("student endpoints", () => {
     expect(url.searchParams.get("workMode")).toBe("Remote");
     expect(url.searchParams.get("q")).toBe("power bi");
 
-    const second = stubFetch(json({ items: [] }));
+    const second = stubFetch(json({ items: [], page: 1, pageSize: 20, total: 0 }));
     await listJobs("tok", { q: "   " });
     expect(second.mock.calls[0][0]).toBe(`${API_BASE}/api/discovery/jobs`);
+  });
+
+  it("listJobs sends sort, page and pageSize when set", async () => {
+    const { listJobs } = await loadClient();
+    const fetchMock = stubFetch(json({ items: [], page: 2, pageSize: 20, total: 46 }));
+    await listJobs("tok", { sort: "newest", page: 2, pageSize: 20 });
+    const url = new URL(fetchMock.mock.calls[0][0]);
+    expect(url.searchParams.get("sort")).toBe("newest");
+    expect(url.searchParams.get("page")).toBe("2");
+    expect(url.searchParams.get("pageSize")).toBe("20");
   });
 
   it("getJob GETs one job with fit", async () => {

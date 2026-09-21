@@ -1,6 +1,5 @@
-import { Check } from "lucide-react";
+import { Calendar, Check, type LucideIcon } from "lucide-react";
 
-import { styleForConfidenceBand } from "@/lib/portfolio/analysis-status";
 import type {
   ApplicationStatus,
   FitLabel,
@@ -8,6 +7,10 @@ import type {
   PostingStatus,
   WorkMode,
 } from "@/lib/api/jobPostings";
+
+import { cn } from "cn";
+
+import { deadlineText } from "./deadline-text";
 
 /** Shared small pieces for job and internship surfaces. */
 
@@ -39,47 +42,69 @@ export function formatPostedDate(iso: string): string {
 }
 
 const PILL =
-  "inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold";
+  "inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-1 text-[12px] font-bold";
 
+/** "Job" or "Internship", info blue tokens. */
 export function KindPill({ kind }: { kind: PostingKind }) {
+  return <span className={cn(PILL, "bg-info-soft text-info")}>{kind}</span>;
+}
+
+export interface StatusPillProps {
+  status: PostingStatus;
+  /** Optional icon shown next to the label (e.g. Pause for Paused). */
+  icon?: LucideIcon;
+  /** Override tone — used for an Expired deadline chip on an Open posting. */
+  tone?: "default" | "warning" | "danger" | "neutral";
+  /** When `true`, render as an "Expired" tone override even on Open postings. */
+  expired?: boolean;
+  /** Optional label override; defaults to the posting status. */
+  label?: string;
+}
+
+const STATUS_TONE: Record<PostingStatus, "default" | "warning" | "neutral"> = {
+  Open: "default",
+  Paused: "warning",
+  Closed: "neutral",
+};
+
+const STATUS_TONE_CLASS: Record<
+  "default" | "warning" | "danger" | "neutral",
+  string
+> = {
+  default: "bg-success-soft text-success",
+  warning: "bg-warning-soft text-warning",
+  danger: "bg-danger-soft text-danger",
+  neutral: "bg-secondary text-muted-foreground",
+};
+
+export function StatusPill({ status, icon: Icon, tone, expired, label }: StatusPillProps) {
+  const resolved = expired ? "danger" : tone ?? STATUS_TONE[status];
+  const text = expired ? "Expired" : (label ?? status);
   return (
-    <span
-      className={PILL}
-      style={{ backgroundColor: "#e8eef2", color: "#345a73" }}
-    >
-      {kind}
+    <span className={cn(PILL, "gap-1", STATUS_TONE_CLASS[resolved])}>
+      {Icon ? <Icon className="size-3" strokeWidth={2.5} aria-hidden /> : null}
+      {text}
     </span>
   );
 }
 
-const STATUS_STYLES: Record<PostingStatus, { bg: string; fg: string }> = {
-  Open: { bg: "#e6f4ea", fg: "#1e7b34" },
-  Paused: { bg: "#fbeee7", fg: "#a4460f" },
-  Closed: { bg: "#f3efdd", fg: "#6e6488" },
+const FIT_TONE: Record<FitLabel, "success" | "info" | "warning" | "neutral"> = {
+  "Strong match": "success",
+  "Good match": "info",
+  "Early match": "warning",
+  "Not yet": "neutral",
 };
 
-export function StatusPill({ status }: { status: PostingStatus }) {
-  const s = STATUS_STYLES[status] ?? STATUS_STYLES.Closed;
-  return (
-    <span className={PILL} style={{ backgroundColor: s.bg, color: s.fg }}>
-      {status}
-    </span>
-  );
-}
-
-const FIT_STYLES: Record<FitLabel, { bg: string; fg: string }> = {
-  "Strong match": { bg: "#e6f4ea", fg: "#1e7b34" },
-  "Good match": { bg: "#e7f0ed", fg: "#345a73" },
-  "Early match": { bg: "#fbeee7", fg: "#a4460f" },
-  "Not yet": { bg: "#f3efdd", fg: "#6e6488" },
-};
+const FIT_TONE_CLASS = {
+  success: "bg-success-soft text-success",
+  info: "bg-info-soft text-info",
+  warning: "bg-warning-soft text-warning",
+  neutral: "bg-secondary text-muted-foreground",
+} as const;
 
 export function FitPill({ label }: { label: FitLabel }) {
-  const s = FIT_STYLES[label] ?? FIT_STYLES["Not yet"];
   return (
-    <span className={PILL} style={{ backgroundColor: s.bg, color: s.fg }}>
-      {label}
-    </span>
+    <span className={cn(PILL, FIT_TONE_CLASS[FIT_TONE[label]])}>{label}</span>
   );
 }
 
@@ -90,21 +115,20 @@ export const APPLICATION_STATUS_LABELS: Record<ApplicationStatus, string> = {
   NotSelected: "Not selected",
 };
 
-const APPLICATION_STATUS_STYLES: Record<
+const APPLICATION_TONE: Record<
   ApplicationStatus,
-  { bg: string; fg: string }
+  "neutral" | "info" | "success" | "warning"
 > = {
-  Submitted: { bg: "#f3efdd", fg: "#6e6488" },
-  Viewed: { bg: "#e7f0ed", fg: "#345a73" },
-  Shortlisted: { bg: "#e6f4ea", fg: "#1e7b34" },
-  NotSelected: { bg: "#fbeee7", fg: "#a4460f" },
+  Submitted: "neutral",
+  Viewed: "info",
+  Shortlisted: "success",
+  NotSelected: "warning",
 };
 
 /** Where an application stands: Submitted, Viewed, Shortlisted, Not selected. */
 export function ApplicationStatusPill({ status }: { status: ApplicationStatus }) {
-  const s = APPLICATION_STATUS_STYLES[status] ?? APPLICATION_STATUS_STYLES.Submitted;
   return (
-    <span className={PILL} style={{ backgroundColor: s.bg, color: s.fg }}>
+    <span className={cn(PILL, FIT_TONE_CLASS[APPLICATION_TONE[status]])}>
       {APPLICATION_STATUS_LABELS[status] ?? status}
     </span>
   );
@@ -113,33 +137,87 @@ export function ApplicationStatusPill({ status }: { status: ApplicationStatus })
 /** Small marker on an opening the student has already applied to. */
 export function AppliedPill() {
   return (
-    <span
-      className={`${PILL} gap-1`}
-      style={{ backgroundColor: "#e7f0ed", color: "#345a73" }}
-    >
+    <span className={cn(PILL, "gap-1", FIT_TONE_CLASS.info)}>
       <Check className="size-3" strokeWidth={3} aria-hidden />
       Applied
     </span>
   );
 }
 
-/** Just the band word (Strong or Developing), for skill rows. */
+/** Just the band word (Strong or Developing), for skill rows.
+ *  Phase 2: uses the success/warning tokens (was `styleForConfidenceBand`,
+ *  which produced inline hex). The band labels are normalised so callers
+ *  can pass either "Strong" / "Developing" or "Strong" / "Developing". */
+const BAND_TONE_CLASS: Record<string, string> = {
+  Strong: "bg-success-soft text-success",
+  Developing: "bg-warning-soft text-warning",
+  Missing: "bg-secondary text-muted-foreground",
+};
+const BAND_LABEL: Record<string, string> = {
+  Strong: "Strong",
+  Developing: "Developing",
+  Missing: "Missing",
+};
+
 export function BandPill({ band }: { band: string }) {
-  const p = styleForConfidenceBand(band);
+  const tone = BAND_TONE_CLASS[band] ?? BAND_TONE_CLASS.Missing;
+  const label = BAND_LABEL[band] ?? band;
+  return <span className={cn(PILL, tone)}>{label}</span>;
+}
+
+/** Plain skill chip — used by the openings list and the "How students will
+ *  see it" preview card. */
+export function SkillChip({ children }: { children: React.ReactNode }) {
   return (
-    <span className={PILL} style={{ backgroundColor: p.background, color: p.color }}>
-      {p.label}
+    <span
+      className={cn(
+        PILL,
+        "bg-secondary text-foreground",
+        "px-[11px] py-[5px] text-[13px] font-semibold",
+      )}
+    >
+      {children}
     </span>
   );
 }
 
-/** Plain skill chip. */
-export function SkillChip({ children }: { children: React.ReactNode }) {
+/**
+ * Phase 3 — "You have" skill chip on student cards. Solid success token,
+ * check icon, slightly tighter padding so the icon nests inside the pill
+ * without breaking the rounded silhouette. Sized at 13 px bold to match
+ * the approved design canvas.
+ */
+export function HaveSkillChip({ name }: { name: string }) {
   return (
     <span
-      className="inline-flex items-center rounded-full bg-secondary px-2.5 py-[3px] text-[11.5px] font-medium text-foreground"
+      className={cn(
+        PILL,
+        "gap-[5px] bg-success-soft px-[11px] py-[5px] pl-[9px] text-[13px] font-bold text-success",
+      )}
     >
-      {children}
+      <Check className="size-[13px] shrink-0" strokeWidth={3} aria-hidden />
+      {name}
+    </span>
+  );
+}
+
+/**
+ * Phase 3 — "To build" skill chip on student cards. Dashed cream border
+ * to read as "not yet shown", muted foreground, no icon. The dashed
+ * border colour comes from `--warning`'s soft pair translated into a
+ * muted tone via the existing `border-border` token plus a custom
+ * dashed treatment; this stays within the design system since the
+ * dashed style is the only visual difference from `SkillChip`.
+ */
+export function ToBuildSkillChip({ name }: { name: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full border-[1.5px] border-dashed px-[11px] py-[4px] text-[13px] font-semibold",
+        "border-border bg-background text-muted-foreground",
+      )}
+    >
+      {name}
     </span>
   );
 }
@@ -149,4 +227,67 @@ export function truncatedList(names: string[], limit = 3): string {
   const shown = names.slice(0, limit).join(", ");
   const rest = names.length - limit;
   return rest > 0 ? `${shown} +${rest} more` : shown;
+}
+
+/**
+ * Phase 3 — calendar icon + short deadline text on student cards. Renders
+ * the deadline label from `deadlineText(iso, now)` and switches to the
+ * warning tone (orange) when the deadline is at most 3 days away, so
+ * "Closing soon" stands out without losing the muted default elsewhere.
+ * Returns `null` when there is no deadline, so callers can drop it.
+ */
+export function DeadlineChip({
+  iso,
+  now,
+  className,
+}: {
+  iso: string | null | undefined;
+  now?: Date;
+  className?: string;
+}) {
+  const text = deadlineText(iso, now);
+  if (text.kind === "none") return null;
+  const soon = text.kind === "today" || text.kind === "soon";
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 text-[14px]",
+        soon
+          ? "font-bold text-warning"
+          : "font-medium text-muted-foreground",
+        className,
+      )}
+    >
+      <Calendar className="size-4" aria-hidden />
+      {text.text}
+    </span>
+  );
+}
+
+/** "BDT 15,000" with a thin space as the thousands separator. */
+export function formatBdt(n: number): string {
+  return `BDT ${n.toLocaleString("en-US")}`;
+}
+
+/** Render a pay range in whole taka per month. Hides the bound entirely
+ *  when null. The "BDT" prefix is shown once at the start of the range. */
+export function formatPayRange(
+  min: number | null,
+  max: number | null,
+  unit = "per month",
+): string | null {
+  if (min == null && max == null) return null;
+  if (min != null && max != null) {
+    const minStr = min.toLocaleString("en-US");
+    const maxStr = max.toLocaleString("en-US");
+    return `BDT ${minStr} to ${maxStr} ${unit}`.trim();
+  }
+  if (min != null) return `From ${formatBdt(min)} ${unit}`.trim();
+  return `Up to ${formatBdt(max as number)} ${unit}`.trim();
+}
+
+/** Pluralise "opening" / "openings" based on count. */
+export function formatOpenings(n: number | undefined | null): string {
+  const v = n ?? 1;
+  return `${v} ${v === 1 ? "opening" : "openings"}`;
 }

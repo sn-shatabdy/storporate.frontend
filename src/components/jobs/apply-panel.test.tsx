@@ -45,10 +45,10 @@ describe("ApplyPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     expect(await screen.findByText("You applied")).toBeInTheDocument();
     expect(applyToJob).toHaveBeenCalledWith(ACCESS_TOKEN, "job-1", undefined);
-    expect(screen.getByText("Submitted")).toHaveStyle({
-      backgroundColor: "#f3efdd",
-      color: "#6e6488",
-    });
+    expect(screen.getByText("Submitted")).toHaveClass(
+      "bg-secondary",
+      "text-muted-foreground",
+    );
     expect(screen.getByRole("link", { name: "View your applications" })).toHaveAttribute(
       "href",
       "/dashboard/applications",
@@ -78,10 +78,10 @@ describe("ApplyPanel", () => {
       <ApplyPanel jobId="job-1" initial={{ id: "app-1", status: "Shortlisted" }} />,
     );
     expect(screen.getByText("You applied")).toBeInTheDocument();
-    expect(screen.getByText("Shortlisted")).toHaveStyle({
-      backgroundColor: "#e6f4ea",
-      color: "#1e7b34",
-    });
+    expect(screen.getByText("Shortlisted")).toHaveClass(
+      "bg-success-soft",
+      "text-success",
+    );
   });
 
   it("shows the applied state with the real status on a 409", async () => {
