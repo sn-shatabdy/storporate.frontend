@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { CheckCircle2, Pause, Pencil, Play, Plus, X } from "lucide-react";
+import { CheckCircle2, Pause, Pencil, Play, Plus, Users, X } from "lucide-react";
 
 import { ApiError } from "@/lib/api/errors";
 import {
@@ -216,6 +216,7 @@ function PostingCard({
 }) {
   const closed = posting.status === "Closed";
   const editHref = `/employer/jobs/${encodeURIComponent(posting.id)}/edit`;
+  const applicantsHref = `/employer/jobs/${encodeURIComponent(posting.id)}/applicants`;
   const posted = formatPostedDate(posting.createdAt);
 
   return (
@@ -292,6 +293,12 @@ function PostingCard({
           className="flex flex-wrap gap-2 border-t pt-4"
           style={{ borderColor: "var(--border)" }}
         >
+          <Button asChild variant="outline" size="lg" className="h-9">
+            <Link href={applicantsHref}>
+              <Users className="size-4" aria-hidden />
+              Applicants
+            </Link>
+          </Button>
           <Button asChild variant="outline" size="lg" className="h-9">
             <Link href={editHref}>
               <Pencil className="size-4" aria-hidden />

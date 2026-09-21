@@ -16,6 +16,7 @@ import {
   workModeAndLocation,
 } from "@/components/jobs/job-pills";
 import { JobsEmptyState, JobsListSkeleton } from "@/components/jobs/job-states";
+import { ApplyPanel } from "@/components/jobs/apply-panel";
 
 type LoadState =
   | { kind: "loading" }
@@ -111,6 +112,7 @@ function JobDetail({ job }: { job: JobWithFit }) {
             {workModeAndLocation(job.workMode, job.location)}
           </span>
         </p>
+        <ApplyPanel jobId={job.id} initial={job.application} />
       </header>
 
       <section

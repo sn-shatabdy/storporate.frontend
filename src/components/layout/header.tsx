@@ -70,6 +70,9 @@ export function Header() {
     pathname?.startsWith("/dashboard/visibility") ?? false;
   // STOR-66 — job and internship openings (student browse + detail).
   const isOpeningsActive = pathname?.startsWith("/dashboard/jobs") ?? false;
+  // STOR-67 — the student's own applications.
+  const isApplicationsActive =
+    pathname?.startsWith("/dashboard/applications") ?? false;
   // STOR-43 Phase 4 — single-link employer nav; `startsWith` so any
   // future employer sub-routes keep the active state.
   const isEmployerSearchActive =
@@ -133,6 +136,7 @@ export function Header() {
             isAdvisorActive={isAdvisorActive}
             isVisibilityActive={isVisibilityActive}
             isOpeningsActive={isOpeningsActive}
+            isApplicationsActive={isApplicationsActive}
           />
         </div>
       )}
@@ -160,6 +164,7 @@ export function Header() {
               isAdvisorActive={isAdvisorActive}
               isVisibilityActive={isVisibilityActive}
               isOpeningsActive={isOpeningsActive}
+              isApplicationsActive={isApplicationsActive}
             />
           )}
           {isOrganization && (
@@ -298,6 +303,7 @@ export function StudentNav({
   isAdvisorActive,
   isVisibilityActive,
   isOpeningsActive = false,
+  isApplicationsActive = false,
 }: {
   className?: string;
   isDashboardActive: boolean;
@@ -305,6 +311,7 @@ export function StudentNav({
   isAdvisorActive: boolean;
   isVisibilityActive: boolean;
   isOpeningsActive?: boolean;
+  isApplicationsActive?: boolean;
 }) {
   return (
     <nav
@@ -329,6 +336,13 @@ export function StudentNav({
       {/* STOR-66 — browse jobs and internships. */}
       <StudentNavLink href="/dashboard/jobs" active={isOpeningsActive}>
         Openings
+      </StudentNavLink>
+      {/* STOR-67 — applications the student has submitted. */}
+      <StudentNavLink
+        href="/dashboard/applications"
+        active={isApplicationsActive}
+      >
+        Applications
       </StudentNavLink>
     </nav>
   );

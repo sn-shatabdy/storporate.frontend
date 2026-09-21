@@ -155,4 +155,17 @@ describe("student openings list", () => {
     fireEvent.click(screen.getByRole("button", { name: /Try again/ }));
     expect(await screen.findByRole("article")).toBeInTheDocument();
   });
+
+  it("marks openings the student already applied to", async () => {
+    vi.mocked(listJobs).mockResolvedValue({
+      items: [
+        makeJob({ id: "j1", application: { id: "app-1", status: "Viewed" } }),
+        makeJob({ id: "j2" }),
+      ],
+    });
+    render(<OpeningsPage />);
+    const cards = await screen.findAllByRole("article");
+    expect(cards[0]).toHaveTextContent("Applied");
+    expect(cards[1]).not.toHaveTextContent("Applied");
+  });
 });

@@ -1,5 +1,8 @@
+import { Check } from "lucide-react";
+
 import { styleForConfidenceBand } from "@/lib/portfolio/analysis-status";
 import type {
+  ApplicationStatus,
   FitLabel,
   PostingKind,
   PostingStatus,
@@ -76,6 +79,46 @@ export function FitPill({ label }: { label: FitLabel }) {
   return (
     <span className={PILL} style={{ backgroundColor: s.bg, color: s.fg }}>
       {label}
+    </span>
+  );
+}
+
+export const APPLICATION_STATUS_LABELS: Record<ApplicationStatus, string> = {
+  Submitted: "Submitted",
+  Viewed: "Viewed",
+  Shortlisted: "Shortlisted",
+  NotSelected: "Not selected",
+};
+
+const APPLICATION_STATUS_STYLES: Record<
+  ApplicationStatus,
+  { bg: string; fg: string }
+> = {
+  Submitted: { bg: "#f3efdd", fg: "#6e6488" },
+  Viewed: { bg: "#e7f0ed", fg: "#345a73" },
+  Shortlisted: { bg: "#e6f4ea", fg: "#1e7b34" },
+  NotSelected: { bg: "#fbeee7", fg: "#a4460f" },
+};
+
+/** Where an application stands: Submitted, Viewed, Shortlisted, Not selected. */
+export function ApplicationStatusPill({ status }: { status: ApplicationStatus }) {
+  const s = APPLICATION_STATUS_STYLES[status] ?? APPLICATION_STATUS_STYLES.Submitted;
+  return (
+    <span className={PILL} style={{ backgroundColor: s.bg, color: s.fg }}>
+      {APPLICATION_STATUS_LABELS[status] ?? status}
+    </span>
+  );
+}
+
+/** Small marker on an opening the student has already applied to. */
+export function AppliedPill() {
+  return (
+    <span
+      className={`${PILL} gap-1`}
+      style={{ backgroundColor: "#e7f0ed", color: "#345a73" }}
+    >
+      <Check className="size-3" strokeWidth={3} aria-hidden />
+      Applied
     </span>
   );
 }
