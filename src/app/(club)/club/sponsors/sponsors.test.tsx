@@ -158,6 +158,22 @@ describe("club sponsor detail", () => {
     expect(getCompanyGoal).toHaveBeenCalledWith(ACCESS_TOKEN, "goal-1", expect.anything());
   });
 
+  it("links to the request form", async () => {
+    render(<SponsorDetailPage />);
+    await screen.findByRole("heading", { level: 1, name: "Acme Ltd" });
+    expect(screen.getByRole("link", { name: "Request sponsorship" })).toHaveAttribute(
+      "href",
+      "/club/sponsors/goal-1/request",
+    );
+  });
+
+  it("does not offer a request when the goal set is missing", async () => {
+    vi.mocked(getCompanyGoal).mockRejectedValue(new ApiError("sponsorship_goal_not_found", "x", 404));
+    render(<SponsorDetailPage />);
+    await screen.findByText("This goal set is not available.");
+    expect(screen.queryByRole("link", { name: "Request sponsorship" })).not.toBeInTheDocument();
+  });
+
   it("leaves out the budget and notes when absent", async () => {
     vi.mocked(getCompanyGoal).mockResolvedValue(makeDetail({ budget: null, notes: null }));
     render(<SponsorDetailPage />);

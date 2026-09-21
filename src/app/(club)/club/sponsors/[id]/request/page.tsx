@@ -2,17 +2,18 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { ChevronLeft, HandCoins } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 
 import { ApiError } from "@/lib/api/errors";
 import { getCompanyGoal, type CompanyGoalDetail } from "@/lib/api/sponsorship";
+import { createRequest, type CreateRequestInput } from "@/lib/api/sponsorshipRequests";
 import { AdvisorErrorState } from "@/components/advisor/advisor-error-state";
-import { Button } from "@/components/ui/button";
 import { JobsListSkeleton } from "@/components/jobs/job-states";
-import { CompanyGoalView } from "@/components/sponsorship/company-goal-view";
+import { GoalContextCard, RequestForm } from "@/components/requests/request-form";
 import { SponsorshipEmptyState } from "@/components/sponsorship/sponsorship-pieces";
+import { Button } from "@/components/ui/button";
 
 type LoadState =
   | { kind: "loading" }
@@ -20,9 +21,10 @@ type LoadState =
   | { kind: "notFound" }
   | { kind: "error" };
 
-/** `/club/sponsors/{id}`: one company goal set. */
-export default function ClubSponsorDetailPage() {
+/** `/club/sponsors/{id}/request`: ask one company to back one event. */
+export default function RequestSponsorshipPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const { data: session } = useSession();
   const accessToken = session?.accessToken ?? null;
   const id = params?.id;
@@ -51,25 +53,31 @@ export default function ClubSponsorDetailPage() {
     return () => controller.abort();
   }, [accessToken, id, version]);
 
+  async function handleSubmit(input: CreateRequestInput) {
+    if (!accessToken) throw new Error("Not signed in");
+    const created = await createRequest(accessToken, input);
+    router.push(`/club/requests/${encodeURIComponent(created.id)}`);
+  }
+
+  const backHref = id ? `/club/sponsors/${encodeURIComponent(id)}` : "/club/sponsors";
+
   return (
     <div className="px-4 py-10 sm:px-6 lg:px-10">
       <div className="mx-auto flex w-full max-w-[820px] flex-col gap-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
           <Link
-            href="/club/sponsors"
+            href={backHref}
             className="inline-flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           >
             <ChevronLeft className="size-4" aria-hidden />
-            Sponsors
+            {state.kind === "loaded" ? state.goal.companyName : "Sponsors"}
           </Link>
-          {state.kind === "loaded" ? (
-            <Button asChild size="lg" className="h-10 sm:h-9">
-              <Link href={`/club/sponsors/${encodeURIComponent(state.goal.id)}/request`}>
-                <HandCoins className="size-4" aria-hidden />
-                Request sponsorship
-              </Link>
-            </Button>
-          ) : null}
+          <h1 className="mt-3 font-heading text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
+            Request sponsorship
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground sm:text-base">
+            Ask this company to back one of your events.
+          </p>
         </div>
 
         {state.kind === "loading" ? (
@@ -78,6 +86,11 @@ export default function ClubSponsorDetailPage() {
           <SponsorshipEmptyState
             title="This goal set is not available."
             message="The company may have paused or removed it. Go back to the sponsor list."
+            action={
+              <Button asChild variant="outline" size="lg" className="mt-1 h-10 sm:h-9">
+                <Link href="/club/sponsors">Back to sponsors</Link>
+              </Button>
+            }
           />
         ) : state.kind === "error" ? (
           <AdvisorErrorState
@@ -86,7 +99,15 @@ export default function ClubSponsorDetailPage() {
             onRetry={() => setVersion((v) => v + 1)}
           />
         ) : (
-          <CompanyGoalView goal={state.goal} />
+          <>
+            <GoalContextCard goal={state.goal} />
+            <RequestForm
+              goalId={state.goal.id}
+              cancelHref={backHref}
+              onSubmit={handleSubmit}
+              onGoalMissing={() => setState({ kind: "notFound" })}
+            />
+          </>
         )}
       </div>
     </div>

@@ -72,6 +72,10 @@ describe("club matches page", () => {
       "href",
       "/club/sponsors/goal-1",
     );
+    expect(within(first).getByRole("link", { name: /Request sponsorship from Acme Ltd/ })).toHaveAttribute(
+      "href",
+      "/club/sponsors/goal-1/request",
+    );
     expect(within(second).getByText("Partial fit")).toBeInTheDocument();
     expect(within(second).queryByText(/BDT/)).not.toBeInTheDocument();
   });
